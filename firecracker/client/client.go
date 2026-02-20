@@ -50,24 +50,43 @@ func (c *Client) SendCtrlAltDel(ctx context.Context) error {
 	return err
 }
 
-// Pause pauses VM execution. The VM can be resumed with Resume().
+// Pause pauses VM execution. Prepare for CreateSnapshot.
 func (c *Client) Pause(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
 	}
-	// Note: Pause/Resume are controlled via PatchVM, not CreateSyncAction
-	// Using direct SDK method would be: m.client.PatchVM(ctx, &models.VM{State: strPtr("Paused")})
-	// But in recovery/runtime context, we recommend using StopTask for cleanup instead
-	return errors.New("Pause not supported in recovery context; use StopTask for VM shutdown")
+	vm := &models.VM{
+		State: strPtr(models.VMStatePaused),
+	}
+	_, err := c.client.PatchVM(ctx, vm)
+	return err
 }
 
-// Resume resumes VM execution after being paused.
+// Resume resumes a paused VM (after loading from snapshot or normal pause).
 func (c *Client) Resume(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
 	}
-	// Note: Pause/Resume are controlled via PatchVM, not CreateSyncAction
-	return errors.New("Resume not supported in recovery context; use higher-level recovery API")
+	vm := &models.VM{
+		State: strPtr(models.VMStateResumed),
+	}
+	_, err := c.client.PatchVM(ctx, vm)
+	return err
+}
+
+// CreateSnapshot persists VM memory and hardware state to files.
+// VM must be paused before calling this.
+func (c *Client) CreateSnapshot(ctx context.Context, memPath, snapPath string) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+
+	params := &models.SnapshotCreateParams{
+		MemFilePath:  strPtr(memPath),
+		SnapshotPath: strPtr(snapPath),
+	}
+	_, err := c.client.CreateSnapshot(ctx, params)
+	return err
 }
 
 // SendSignal maps Nomad signals to Firecracker HTTP actions:

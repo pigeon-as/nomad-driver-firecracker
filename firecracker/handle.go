@@ -22,16 +22,18 @@ type taskHandle struct {
 	// stateLock syncs access to all fields below
 	stateLock sync.RWMutex
 
-	logger       hclog.Logger
-	exec         executor.Executor
-	pluginClient *plugin.Client
-	taskConfig   *drivers.TaskConfig
-	procState    drivers.TaskState
-	startedAt    time.Time
-	completedAt  time.Time
-	exitResult   *drivers.ExitResult
-	pid          int
-	socketPath   string // Unix socket path for Firecracker VM communication
+	logger          hclog.Logger
+	exec            executor.Executor
+	pluginClient    *plugin.Client
+	taskConfig      *drivers.TaskConfig
+	procState       drivers.TaskState
+	startedAt       time.Time
+	completedAt     time.Time
+	exitResult      *drivers.ExitResult
+	pid             int
+	socketPath      string // Unix socket path for Firecracker VM communication
+	snapshotMemPath string // Path to memory dump if suspended
+	snapshotPath    string // Path to VM state if suspended
 }
 
 func (h *taskHandle) TaskStatus() *drivers.TaskStatus {

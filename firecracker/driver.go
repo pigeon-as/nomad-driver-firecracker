@@ -61,11 +61,13 @@ var (
 // This information is needed to rebuild the task state and handler during
 // recovery.
 type TaskState struct {
-	ReattachConfig *structs.ReattachConfig
-	TaskConfig     *drivers.TaskConfig
-	StartedAt      time.Time
-	Pid            int
-	SocketPath     string // Unix socket path for communicating with Firecracker VM
+	ReattachConfig  *structs.ReattachConfig
+	TaskConfig      *drivers.TaskConfig
+	StartedAt       time.Time
+	Pid             int
+	SocketPath      string // Unix socket path for communicating with Firecracker VM
+	SnapshotMemPath string // Path to snapshot memory dump (empty if no snapshot)
+	SnapshotPath    string // Path to snapshot VM state (empty if no snapshot)
 }
 
 // FirecrackerDriverPlugin implements the Nomad driver interface for running
@@ -425,15 +427,17 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	}
 
 	h := &taskHandle{
-		exec:         execImpl,
-		pid:          taskState.Pid,
-		pluginClient: pluginClient,
-		taskConfig:   taskState.TaskConfig,
-		procState:    drivers.TaskStateRunning,
-		startedAt:    taskState.StartedAt,
-		exitResult:   &drivers.ExitResult{},
-		socketPath:   taskState.SocketPath,
-		logger:       d.logger,
+		exec:            execImpl,
+		pid:             taskState.Pid,
+		pluginClient:    pluginClient,
+		taskConfig:      taskState.TaskConfig,
+		procState:       drivers.TaskStateRunning,
+		startedAt:       taskState.StartedAt,
+		exitResult:      &drivers.ExitResult{},
+		socketPath:      taskState.SocketPath,
+		logger:          d.logger,
+		snapshotMemPath: taskState.SnapshotMemPath,
+		snapshotPath:    taskState.SnapshotPath,
 	}
 
 	// Verify VM is actually running via HTTP health check
@@ -570,6 +574,29 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		handle.pluginClient.Kill()
 	}
 
+	// Clean up snapshot files if they exist
+	handle.stateLock.RLock()
+	memPath := handle.snapshotMemPath
+	snapPath := handle.snapshotPath
+	handle.stateLock.RUnlock()
+
+	if memPath != "" {
+		if err := os.Remove(memPath); err != nil && !os.IsNotExist(err) {
+			d.logger.Warn("failed to remove snapshot memory file", "path", memPath, "err", err)
+		}
+	}
+	if snapPath != "" {
+		if err := os.Remove(snapPath); err != nil && !os.IsNotExist(err) {
+			d.logger.Warn("failed to remove snapshot state file", "path", snapPath, "err", err)
+		}
+	}
+
+	// Remove snapshot directory if empty
+	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
+	if err := os.Remove(snapshotDir); err != nil && !os.IsNotExist(err) {
+		d.logger.Debug("snapshot directory not empty or already removed", "path", snapshotDir)
+	}
+
 	d.tasks.Delete(taskID)
 	return nil
 }
@@ -584,21 +611,16 @@ func (d *FirecrackerDriverPlugin) InspectTask(taskID string) (*drivers.TaskStatu
 	return handle.TaskStatus(), nil
 }
 
-// TaskStats returns a channel which the driver should send stats to at the given interval.
+// TaskStats returns a channel which streams task resource usage at the given interval.
+// Stats are collected from the Firecracker process (resource usage of the VM daemon).
 func (d *FirecrackerDriverPlugin) TaskStats(ctx context.Context, taskID string, interval time.Duration) (<-chan *drivers.TaskResourceUsage, error) {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return nil, drivers.ErrTaskNotFound
 	}
 
-	// TODO: implement driver specific logic to send task stats.
-	//
-	// This function returns a channel that Nomad will use to listen for task
-	// stats (e.g., CPU and memory usage) in a given interval. It should send
-	// stats until the context is canceled or the task stops running.
-	//
-	// In the example below we use the Stats function provided by the executor,
-	// but you can build a set of functions similar to the fingerprint process.
+	// Use executor's Stats to get Firecracker process resource usage (CPU, memory).
+	// This provides visibility into the VM daemon resource consumption.
 	return handle.exec.Stats(ctx, interval)
 }
 
@@ -608,38 +630,85 @@ func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drive
 }
 
 // SignalTask forwards a signal to a task.
-// Maps signals to Firecracker HTTP API actions:
-// - SIGTERM/SIGINT: graceful shutdown via sendCtrlAltDel
-// - SIGKILL: returns error (handled by StopTask)
-// - Others: returns error (not supported)
+// Supports: SIGTERM/SIGINT (graceful shutdown), SIGSTOP (suspend+snapshot), SIGCONT (resume).
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
-	// Only attempt HTTP-based signals if socket path is known
 	if handle.socketPath == "" {
 		d.logger.Warn("cannot send signal: no socket path available", "task_id", taskID)
 		return errors.New("socket path not available")
 	}
 
-	// Create a 5-second timeout context for HTTP signal operation
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	c := client.New(handle.socketPath, d.logger)
-	if err := c.SendSignal(ctx, signal); err != nil {
-		d.logger.Warn("signal operation failed", "task_id", taskID, "signal", signal, "err", err)
-		return err
-	}
 
-	return nil
+	switch signal {
+	case "SIGTERM", "SIGINT":
+		return c.SendCtrlAltDel(ctx)
+
+	case "SIGSTOP":
+		// Suspend: pause → snapshot → store paths
+		if err := c.Pause(ctx); err != nil {
+			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
+			return fmt.Errorf("pause failed: %v", err)
+		}
+
+		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
+		if err := os.MkdirAll(snapshotDir, 0755); err != nil {
+			d.logger.Warn("failed to create snapshot directory", "task_id", taskID, "err", err)
+			return fmt.Errorf("snapshot dir creation failed: %v", err)
+		}
+
+		memPath := filepath.Join(snapshotDir, "memory.img")
+		snapPath := filepath.Join(snapshotDir, "state.vmstate")
+
+		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
+			d.logger.Warn("snapshot creation failed", "task_id", taskID, "err", err)
+			return fmt.Errorf("snapshot creation failed: %v", err)
+		}
+
+		// Store paths in handle
+		handle.stateLock.Lock()
+		handle.snapshotMemPath = memPath
+		handle.snapshotPath = snapPath
+		handle.stateLock.Unlock()
+
+		d.logger.Info("VM suspended with snapshot", "task_id", taskID)
+		return nil
+
+	case "SIGCONT":
+		// Resume: check snapshot exists → resume
+		handle.stateLock.RLock()
+		memPath := handle.snapshotMemPath
+		snapPath := handle.snapshotPath
+		handle.stateLock.RUnlock()
+
+		if memPath == "" || snapPath == "" {
+			d.logger.Warn("cannot resume: no snapshot available", "task_id", taskID)
+			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
+		}
+
+		if err := c.Resume(ctx); err != nil {
+			d.logger.Warn("resume failed", "task_id", taskID, "err", err)
+			return fmt.Errorf("resume failed: %v", err)
+		}
+
+		d.logger.Info("VM resumed from snapshot", "task_id", taskID)
+		return nil
+
+	default:
+		return fmt.Errorf("signal not supported: %s", signal)
+	}
 }
 
-// ExecTask returns the result of executing the given command inside a task.
-// This is an optional capability.
+// ExecTask does not support executing commands in the VM.
+// Firecracker VMs run full operating systems; command execution is handled
+// by the guest OS via systemd, init, or application-level services/APIs.
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
-	// TODO: implement driver specific logic to execute commands in a task.
-	return nil, errors.New("This driver does not support exec")
+	return nil, errors.New("exec is not supported for Firecracker VMs; configure your guest OS to handle command execution externally")
 }
