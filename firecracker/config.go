@@ -19,8 +19,14 @@ var (
 	// omitted.
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
 		"jailer": hclspec.NewObject(map[string]*hclspec.Spec{
-			"exec_file":     hclspec.NewAttr("exec_file", "string", true),
-			"jailer_binary": hclspec.NewAttr("jailer_binary", "string", true),
+			"exec_file": hclspec.NewDefault(
+				hclspec.NewAttr("exec_file", "string", false),
+				hclspec.NewLiteral(`"firecracker"`),
+			),
+			"jailer_binary": hclspec.NewDefault(
+				hclspec.NewAttr("jailer_binary", "string", false),
+				hclspec.NewLiteral(`"jailer"`),
+			),
 		}),
 	})
 
@@ -84,9 +90,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Jailer == nil {
 		return errors.New("jailer configuration is required in plugin config")
-	}
-	if c.Jailer.ExecFile == "" {
-		return errors.New("jailer.exec_file must be set in plugin configuration")
 	}
 	// run the generic validation (defaults for binary/dir)
 	if err := c.Jailer.Validate(); err != nil {

@@ -42,12 +42,14 @@ func (n *JailerConfig) Validate() error {
 
 	var mErr multierror.Error
 
-	// required fields
+	// provide sensible defaults if the user omitted the values; the SDK is
+	// happy to look up a bare binary via PATH so we avoid forcing absolute
+	// names on operators.
 	if n.ExecFile == "" {
-		mErr = *multierror.Append(&mErr, errors.New("exec_file is required for jailer"))
+		n.ExecFile = "firecracker"
 	}
 	if n.JailerBinary == "" {
-		mErr = *multierror.Append(&mErr, errors.New("jailer_binary is required for jailer"))
+		n.JailerBinary = "jailer"
 	}
 
 	// we ignore any user-supplied chroot base dir; the driver will compute one
@@ -61,8 +63,8 @@ func (n *JailerConfig) Validate() error {
 // be embedded in a larger plugin/task schema when validating user input.
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
-		"exec_file":     hclspec.NewAttr("exec_file", "string", true),
-		"jailer_binary": hclspec.NewAttr("jailer_binary", "string", true),
+		"exec_file":     hclspec.NewAttr("exec_file", "string", false),
+		"jailer_binary": hclspec.NewAttr("jailer_binary", "string", false),
 		// uid/gid removed – Nomad's user field is used instead
 	})
 }
