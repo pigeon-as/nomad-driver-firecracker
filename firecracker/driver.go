@@ -269,6 +269,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	if err := handle.SetDriverState(&driverState); err != nil {
+		pluginClient.Kill()
+		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
+			d.logger.Error("failed to shutdown executor after SetDriverState error", "error", shutdownErr)
+		}
 		return nil, nil, fmt.Errorf("failed to set driver state: %v", err)
 	}
 

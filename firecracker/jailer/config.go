@@ -6,24 +6,23 @@ import (
 )
 
 type JailerConfig struct {
-	ExecFile      string `codec:"exec_file"`
-	JailerBinary  string `codec:"jailer_binary"`
-	ChrootBaseDir string `codec:"chroot_base_dir"`
+	ExecFile     string `codec:"exec_file"`
+	JailerBinary string `codec:"jailer_binary"`
 }
 
-func (n *JailerConfig) Validate() error {
+func (c *JailerConfig) Validate() error {
 
-	if n == nil {
+	if c == nil {
 		return nil
 	}
 
 	var mErr multierror.Error
 
-	if n.ExecFile == "" {
-		n.ExecFile = "firecracker"
+	if c.ExecFile == "" {
+		c.ExecFile = "firecracker"
 	}
-	if n.JailerBinary == "" {
-		n.JailerBinary = "jailer"
+	if c.JailerBinary == "" {
+		c.JailerBinary = "jailer"
 	}
 
 	return mErr.ErrorOrNil()

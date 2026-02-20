@@ -9,13 +9,6 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
 
-type Config struct {
-}
-
-func (c *Config) Validate() error {
-	return nil
-}
-
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
 		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{

@@ -79,6 +79,10 @@ func (c *TaskConfig) Validate() error {
 		return err
 	}
 
+	if len(c.Drives) == 0 {
+		return errors.New("at least one drive must be configured")
+	}
+
 	hasRootDevice := false
 	for i, d := range c.Drives {
 		if err := d.Validate(); err != nil {
@@ -91,8 +95,8 @@ func (c *TaskConfig) Validate() error {
 			hasRootDevice = true
 		}
 	}
-	if len(c.Drives) > 0 && !hasRootDevice {
-		return errors.New("at least one drive must be marked as root device with is_root_device = true")
+	if !hasRootDevice {
+		return errors.New("exactly one drive must be marked as root device with is_root_device = true")
 	}
 
 	if len(c.NetworkInterfaces) > 0 {
