@@ -1,10 +1,10 @@
 # Logging
 
-The driver automatically captures two log streams through Nomad's executor:
+The driver routes both Firecracker daemon logs and guest console output through Nomad's logmon pipeline. This means log rotation, size limits, and log disabling all behave exactly like other Nomad drivers.
 
-## Firecracker Daemon Logs (stderr.0)
+## Firecracker Daemon Logs (stderr)
 
-Structured JSON logs from the Firecracker daemon process, written via `--log-path`:
+Structured JSON logs from the Firecracker daemon process are emitted to the task's stderr stream:
 
 ```bash
 nomad alloc logs -stderr <alloc>
@@ -16,9 +16,9 @@ These logs include:
 - VM lifecycle events
 - Error messages and warnings
 
-## Guest Console Logs (stdout.0)
+## Guest Console Logs (stdout)
 
-Guest OS serial console output (`/dev/ttyS0`) automatically captured via Firecracker's stdout:
+Guest OS serial console output (`/dev/ttyS0`) is emitted to the task's stdout stream:
 
 ```bash
 nomad alloc logs <alloc>

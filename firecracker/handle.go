@@ -5,7 +5,6 @@ package firecracker
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -35,7 +34,6 @@ type taskHandle struct {
 	socketPath      string   // Unix socket path for Firecracker VM communication
 	snapshotMemPath string   // Path to memory dump if suspended
 	snapshotPath    string   // Path to VM state if suspended
-	logFile         *os.File // File handle to stderr.0, kept for cleanup
 }
 
 func (h *taskHandle) TaskStatus() *drivers.TaskStatus {
