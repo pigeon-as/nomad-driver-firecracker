@@ -155,12 +155,6 @@ func (d *HelloDriverPlugin) SetConfig(cfg *base.Config) error {
 	// string "10s" into a time.Interval) you can do it here and update the
 	// value in d.config.
 	//
-	// In the example below we check if the shell specified by the user is
-	// supported by the plugin.
-	shell := d.config.Shell
-	if shell != "bash" && shell != "fish" {
-		return fmt.Errorf("invalid shell %s", d.config.Shell)
-	}
 
 	// Save the Nomad agent configuration
 	if cfg.AgentConfig != nil {
@@ -222,42 +216,31 @@ func (d *HelloDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		HealthDescription: drivers.DriverHealthy,
 	}
 
-	// TODO: implement fingerprinting logic to populate health and driver
-	// attributes.
-	//
-	// Fingerprinting is used by the plugin to relay two important information
-	// to Nomad: health state and node attributes.
-	//
-	// If the plugin reports to be unhealthy, or doesn't send any fingerprint
-	// data in the expected interval of time, Nomad will restart it.
-	//
-	// Node attributes can be used to report any relevant information about
-	// the node in which the plugin is running (specific library availability,
-	// installed versions of a software etc.). These attributes can then be
-	// used by an operator to set job constrains.
-	//
-	// In the example below we check if the shell specified by the user exists
-	// in the node.
-	shell := d.config.Shell
-
-	cmd := exec.Command("which", shell)
-	if err := cmd.Run(); err != nil {
-		return &drivers.Fingerprint{
-			Health:            drivers.HealthStateUndetected,
-			HealthDescription: fmt.Sprintf("shell %s not found", shell),
-		}
+	// simple health check: ensure the configured Firecracker binary exists and
+	// optionally report its version.  this mirrors the previous shell-based
+	// example but uses the actual exec_file we need anyway.
+	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
+		// nothing to verify, just return healthy
+		return fp
 	}
 
-	// We also set the shell and its version as attributes
-	cmd = exec.Command(shell, "--version")
-	if out, err := cmd.Output(); err != nil {
-		d.logger.Warn("failed to find shell version: %v", err)
-	} else {
-		re := regexp.MustCompile("[0-9]\\.[0-9]\\.[0-9]")
-		version := re.FindString(string(out))
+	bin := d.config.Jailer.ExecFile
+	if _, err := os.Stat(bin); err != nil {
+		fp.Health = drivers.HealthStateUndetected
+		fp.HealthDescription = fmt.Sprintf("firecracker binary %s not found", bin)
+		return fp
+	}
 
-		fp.Attributes["driver.hello.shell_version"] = structs.NewStringAttribute(version)
-		fp.Attributes["driver.hello.shell"] = structs.NewStringAttribute(shell)
+	// try to query version; ignore errors but log a warning
+	cmd := exec.Command(bin, "--version")
+	if out, err := cmd.Output(); err != nil {
+		d.logger.Warn("failed to query firecracker version", "err", err)
+	} else {
+		re := regexp.MustCompile("[0-9]+\\.[0-9]+\\.[0-9]+")
+		version := re.FindString(string(out))
+		if version != "" {
+			fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
+		}
 	}
 
 	return fp
@@ -297,14 +280,6 @@ func (d *HelloDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHan
 	var driverConfig TaskConfig
 	if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
-	}
-
-	// if the plugin was configured with default interfaces and the task did not
-	// supply any, inherit them now.  this allows operators to apply cluster-wide
-	// defaults while still letting jobs override the list entirely.
-	if len(driverConfig.NetworkInterfaces) == 0 && d.config != nil &&
-		d.config.Network != nil {
-		driverConfig.NetworkInterfaces = d.config.Network.DefaultInterfaces
 	}
 
 	// validate any Firecracker network configuration the user may have provided
@@ -388,7 +363,8 @@ func (d *HelloDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHan
 		pluginClient.Kill()
 		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
 	}
-	execCmd = &executor.ExecCommand{
+	// purposefully use a short declaration here; execCmd is a local variable
+	execCmd := &executor.ExecCommand{
 		Cmd:        jConfig.Bin(),
 		Args:       jArgs,
 		StdoutPath: cfg.StdoutPath,
@@ -447,14 +423,6 @@ func (d *HelloDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 		return fmt.Errorf("failed to decode driver config: %v", err)
 	}
 
-	// merge defaults when recovering as well; the recovered `driverConfig`
-	// reflects the originally-decoded task config, which may not include any
-	// network settings.  we mirror the same inheritance logic used during
-	// StartTask.
-	if len(driverConfig.NetworkInterfaces) == 0 && d.config != nil &&
-		d.config.Network != nil {
-		driverConfig.NetworkInterfaces = d.config.Network.DefaultInterfaces
-	}
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		if err := driverConfig.NetworkInterfaces.validate(nil); err != nil {
 			return fmt.Errorf("invalid network configuration on recover: %v", err)

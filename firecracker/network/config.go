@@ -23,38 +23,24 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 )
 
-// Config holds global network-related configuration for the plugin.  It
-// currently allows the operator to supply a default set of interfaces that
-// will be applied to every task unless the job overrides them.  This mirrors
-// the task-level objects but lives in the plugin configuration space.
-//
-// The fields are intentionally limited today; as the driver gains additional
-// network features we can expand this struct without impacting task schema.
+// Config holds global network-related configuration for the plugin.  It is
+// currently unused but kept as a placeholder in case we need to surface
+// cluster-wide settings later.
 type Config struct {
-	// DefaultInterfaces provides a list of interfaces that are implicitly
-	// appended to each task's configuration if the job did not specify any
-	// explicit `network_interface` blocks.  It is mostly useful for cluster-wide
-	// defaults such as a shared tap device or common rate limits.
-	DefaultInterfaces NetworkInterfaces `codec:"default_interfaces"`
 }
 
-// Validate normalizes and validates a network config.  We delegate most
-// checking to the NetworkInterfaces helpers so that the rules are shared with
-// task-level validation.
+// Validate normalizes and validates a network config.  Today it's a no-op but
+// we include it for symmetry with jailer.Config and to simplify future
+// extension.
 func (c *Config) Validate() error {
-	if c == nil {
-		return nil
-	}
-	return c.DefaultInterfaces.Validate()
+	return nil
 }
 
-// HCLSpec returns the HCL schema for the network configuration.  Exported by
-// the package so callers (like the plugin) can easily embed it in their own
-// schemas.  The declaration mirrors the task schema: zero or more
-// `network_interface` blocks.
+// HCLSpec returns the HCL schema for the network configuration.  It is empty
+// today and provided for future compatibility.
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
-		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(nil)),
+		// TODO: define attributes once they exist
 	})
 }
 

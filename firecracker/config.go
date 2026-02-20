@@ -46,10 +46,7 @@ var (
 		//       }
 		//     }
 		//   }
-		"greeting": hclspec.NewDefault(
-			hclspec.NewAttr("greeting", "string", false),
-			hclspec.NewLiteral(`"Hello, World!"`),
-		), // arbitrary network configuration that is closely modeled after
+		// arbitrary network configuration that is closely modeled after
 		// Firecracker's own API.  We don't attempt to validate the inner
 		// structure via HCL spec – users may pass a list of objects matching
 		// the `firecracker-go-sdk` types – so we simply declare the attribute
@@ -108,8 +105,6 @@ func (c *Config) Validate() error {
 // – everything is driven from the plugin config. the greeting remains here
 // only as an example.
 type TaskConfig struct {
-	// Greeting is purely vestigial from the original skeleton driver.  It is
-	// still safe to provide but is ignored by production code.
 
 	// NetworkInterfaces corresponds to any number of `network_interface`
 	// blocks inside the task `config`.  Those blocks are decoded into the
