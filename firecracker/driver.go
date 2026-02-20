@@ -535,19 +535,24 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		return errors.New("cannot destroy running task")
 	}
 
-	// TODO: implement driver specific logic to destroy a complete task.
-	//
-	// Destroying a task includes removing any resources used by task and any
-	// local references in the plugin. If force is set to true the task should
-	// be destroyed even if it's currently running.
-	//
-	// In the example below we use the executor to force shutdown the task
-	// (timeout equals 0).
+	// If force is set and task is still running, attempt graceful shutdown first
+	if handle.IsRunning() && force {
+		if handle.socketPath != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+
+			c := client.New(handle.socketPath)
+			if err := c.Shutdown(ctx); err != nil {
+				d.logger.Debug("graceful shutdown during destroy failed, will force kill", "err", err)
+			}
+		}
+	}
+
+	// Force kill if still running or if no socket available
 	if !handle.pluginClient.Exited() {
 		if err := handle.exec.Shutdown("", 0); err != nil {
-			handle.logger.Error("destroying executor failed", "err", err)
+			handle.logger.Error("force shutdown failed", "err", err)
 		}
-
 		handle.pluginClient.Kill()
 	}
 
