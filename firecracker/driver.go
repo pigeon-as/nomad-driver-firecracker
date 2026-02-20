@@ -436,6 +436,21 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		logger:       d.logger,
 	}
 
+	// Verify VM is actually running via HTTP health check
+	if h.socketPath != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		c := client.New(h.socketPath, d.logger)
+		info, err := c.GetInstanceInfo(ctx)
+		if err != nil {
+			return fmt.Errorf("recovered VM failed health check at socket %s: %v", h.socketPath, err)
+		}
+		d.logger.Debug("recovered VM is responsive", "vm_id", info.InstanceID, "task_id", h.taskConfig.ID)
+	} else {
+		d.logger.Warn("socket path not available for health check during recovery", "task_id", h.taskConfig.ID)
+	}
+
 	d.tasks.Set(taskState.TaskConfig.ID, h)
 
 	go h.run()
@@ -503,8 +518,8 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		c := client.New(handle.socketPath)
-		if err := c.Shutdown(ctx); err != nil {
+		c := client.New(handle.socketPath, d.logger)
+		if err := c.SendCtrlAltDel(ctx); err != nil {
 			d.logger.Warn("graceful shutdown failed, will force kill", "err", err)
 		} else {
 			// Graceful shutdown succeeded
@@ -540,8 +555,8 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 
-			c := client.New(handle.socketPath)
-			if err := c.Shutdown(ctx); err != nil {
+			c := client.New(handle.socketPath, d.logger)
+			if err := c.SendCtrlAltDel(ctx); err != nil {
 				d.logger.Debug("graceful shutdown during destroy failed, will force kill", "err", err)
 			}
 		}
@@ -613,7 +628,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	c := client.New(handle.socketPath)
+	c := client.New(handle.socketPath, d.logger)
 	if err := c.SendSignal(ctx, signal); err != nil {
 		d.logger.Warn("signal operation failed", "task_id", taskID, "signal", signal, "err", err)
 		return err
