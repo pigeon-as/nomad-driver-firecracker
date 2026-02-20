@@ -2,17 +2,18 @@ package firecracker
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
 var (
-	// configSpec is the specification of the plugin's configuration
-	// this is used to validate the configuration specified for the plugin
 	// on the client.  we expose a minimal jailer block under the plugin
 	// since the fields are global to the driver; there is no per-task
 	// configuration for the jailer and the chroot base is intentionally
@@ -30,33 +31,12 @@ var (
 		}),
 	})
 
-	// taskConfigSpec is the specification of the plugin's configuration for
-	// a task
-	// this is used to validated the configuration specified for the plugin
-	// when a job is submitted.
+	// taskConfigSpec defines the HCL schema for task configuration.  It
+	// resides in the root package so that callers can inspect it without
+	// importing lower-level helpers.
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		// TODO: define plugin's task configuration schema
-		//
-		// The schema should be defined using HCL specs and it will be used to
-		// validate the task configuration provided by the user when they
-		// submit a job.
-		//
-		// For example, for the schema below a valid task would be:
-		//   job "example" {
-		//     group "example" {
-		//       task "say-hi" {
-		//         driver = "hello-driver-plugin"
-		//         config {
-		//           greeting = "Hi"
-		//         }
-		//       }
-		//     }
-		//   }
-		// arbitrary network configuration that is closely modeled after
-		// Firecracker's own API.  We don't attempt to validate the inner
-		// structure via HCL spec – users may pass a list of objects matching
-		// the `firecracker-go-sdk` types – so we simply declare the attribute
-		// as `any` and perform the heavy lifting later when decoding.
+		"boot_source":       boot.HCLSpec(),
+		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(nil)),
 	})
 
@@ -101,17 +81,38 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// TaskConfig contains configuration information for a task that runs with
-// this plugin
-//
-// for the firecracker driver there is no task-specific jailer configuration
-// – everything is driven from the plugin config. the greeting remains here
-// only as an example.
+// TaskConfig contains all of the configuration a job can supply when using
+// the firecracker driver.  Blocks are defined in separate packages to avoid
+// leaking SDK types into the public API.
 type TaskConfig struct {
-
-	// NetworkInterfaces corresponds to any number of `network_interface`
-	// blocks inside the task `config`.  Those blocks are decoded into the
-	// slice and then validated before a VM is created.  This mirrors the
-	// Firecracker API while keeping Nomad-facing types clean.
+	BootSource        *boot.BootSource          `codec:"boot_source"`
+	Drives            []drive.Drive             `codec:"drive"`
 	NetworkInterfaces network.NetworkInterfaces `codec:"network_interface"`
+}
+
+// Validate performs basic sanity checks on a TaskConfig.  Most of the heavy
+// lifting is done by the subpackages.
+func (c *TaskConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if c.BootSource == nil {
+		return errors.New("boot_source block is required")
+	}
+	if err := c.BootSource.Validate(); err != nil {
+		return err
+	}
+
+	for i, d := range c.Drives {
+		if err := d.Validate(); err != nil {
+			return fmt.Errorf("drive[%d]: %v", i, err)
+		}
+	}
+
+	if len(c.NetworkInterfaces) > 0 {
+		if err := c.NetworkInterfaces.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

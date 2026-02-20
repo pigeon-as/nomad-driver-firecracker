@@ -92,7 +92,11 @@ type BuildParams struct {
 // argument list for invoking the jailer.  The base directory is forced inside
 // the allocation directory so that the Nomad and jailer chroots coincide.  A
 // pointer to BuildParams may be provided to inject task-specific overrides.
-func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams) ([]string, error) {
+//
+// Additional arguments preceded by `--` may be provided for the Firecracker
+// binary itself; these are appended after the `--` separator by the SDK
+// builder.  Typically this is used to supply `--config-file`.
+func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams, fcArgs ...string) ([]string, error) {
 	if c == nil {
 		return nil, errors.New("jailer config is nil")
 	}
@@ -120,6 +124,10 @@ func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams) ([]string
 		if params.CgroupVersion != "" {
 			builder = builder.WithCgroupVersion(params.CgroupVersion)
 		}
+	}
+
+	if len(fcArgs) > 0 {
+		builder = builder.WithFirecrackerArgs(fcArgs...)
 	}
 
 	return builder.Args(), nil

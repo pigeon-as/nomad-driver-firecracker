@@ -21,6 +21,8 @@ import (
 	"github.com/containernetworking/cni/libcni"
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
+
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
 
 // Config holds global network-related configuration for the plugin.  It is
@@ -172,4 +174,34 @@ func (networkInterfaces NetworkInterfaces) validate(kernelArgs map[string]string
 		}
 	}
 	return nil
+}
+
+// ToSDK converts a slice of NetworkInterface values into the SDK's
+// representation.  This mirrors the old convertNetwork helper that lived in
+// driver.go but keeps the logic close to the type definition.
+func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
+	if len(networkInterfaces) == 0 {
+		return nil
+	}
+	out := make([]*models.NetworkInterface, len(networkInterfaces))
+	for i, iface := range networkInterfaces {
+		m := &models.NetworkInterface{}
+		if iface.StaticConfiguration != nil {
+			if iface.StaticConfiguration.HostDevName != "" {
+				m.HostDevName = utils.String(iface.StaticConfiguration.HostDevName)
+			}
+			if iface.StaticConfiguration.MacAddress != "" {
+				m.GuestMac = iface.StaticConfiguration.MacAddress
+			}
+		}
+		m.IfaceID = utils.String(fmt.Sprintf("eth%d", i))
+		if iface.InRateLimiter != nil {
+			m.RxRateLimiter = iface.InRateLimiter
+		}
+		if iface.OutRateLimiter != nil {
+			m.TxRateLimiter = iface.OutRateLimiter
+		}
+		out[i] = m
+	}
+	return out
 }

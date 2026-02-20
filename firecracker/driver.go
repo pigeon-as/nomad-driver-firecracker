@@ -8,11 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/hashicorp/consul-template/signals"
@@ -25,6 +21,8 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
 )
 
 const (
@@ -234,43 +232,12 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	}
 
 	// try to query version; ignore errors but log a warning
-	cmd := exec.Command(bin, "--version")
-	if out, err := cmd.Output(); err != nil {
-		d.logger.Warn("failed to query firecracker version", "err", err)
-	} else {
-		re := regexp.MustCompile("[0-9]+\\.[0-9]+\\.[0-9]+")
-		version := re.FindString(string(out))
-		if version != "" {
-			fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
-		}
+	version := utils.QueryVersion(bin)
+	if version != "" {
+		fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
 	}
 
 	return fp
-}
-
-// lookupUserIDs resolves a username (or numeric string) to uid/gid.  If
-// the input is already numeric we use LookupId; otherwise we Lookup by name.
-// On error both return values are nil.
-func lookupUserIDs(userStr string) (*int, *int, error) {
-	var u *user.User
-	var err error
-	if _, err = strconv.Atoi(userStr); err == nil {
-		u, err = user.LookupId(userStr)
-	} else {
-		u, err = user.Lookup(userStr)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	uid, err := strconv.Atoi(u.Uid)
-	if err != nil {
-		return nil, nil, err
-	}
-	gid, err := strconv.Atoi(u.Gid)
-	if err != nil {
-		return &uid, nil, err
-	}
-	return &uid, &gid, nil
 }
 
 // StartTask returns a task handle and a driver network if necessary.
@@ -284,12 +251,26 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
 	}
 
-	// validate any Firecracker network configuration the user may have provided
-	if len(driverConfig.NetworkInterfaces) > 0 {
-		if err := driverConfig.NetworkInterfaces.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("invalid network configuration: %v", err)
-		}
+	// run basic semantic validation on the task configuration.  this checks
+	// for required fields and delegates to individual block validators.
+	if err := driverConfig.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
 	}
+
+	// build and serialize the Firecracker VM configuration.  the vm package
+	// encapsulates both SDK validation and the boot-source sanity check.
+	configPath := filepath.Join(cfg.TaskDir().Dir, "vmconfig.json")
+	vmCfg := &vm.Config{
+		BootSource:        driverConfig.BootSource,
+		Drives:            driverConfig.Drives,
+		NetworkInterfaces: driverConfig.NetworkInterfaces,
+	}
+	jsonData, err := vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
+	}
+	// keep a debug copy of the generated JSON in the log (may be large)
+	d.logger.Debug("generated vm configuration", "path", configPath, "json", string(jsonData))
 
 	// no per-task jailer settings; configuration is global to the plugin
 	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
@@ -346,7 +327,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// prevent the task from starting because the plugin config may already
 	// specify uid/gid or root is acceptable.
 	if cfg.User != "" {
-		if uid, gid, err := lookupUserIDs(cfg.User); err != nil {
+		if uid, gid, err := jailer.ResolveUserIDs(cfg.User); err != nil {
 			d.logger.Warn("failed to resolve task user for jailer", "user", cfg.User, "err", err)
 		} else {
 			params.UID = uid
@@ -360,7 +341,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params)
+	// let the jailer builder handle appending firecracker arguments for us
+	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath)
 	if err != nil {
 		pluginClient.Kill()
 		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
