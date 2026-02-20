@@ -83,7 +83,3 @@ See [example job](example/example.nomad) for complete configuration.
 - [Signal Handling](docs/signals.md) - SIGTERM, SIGSTOP, SIGCONT usage
 - [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
 - [Logging](docs/logs.md) - Daemon logs and guest console output
-
-## Development
-
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for architecture and design decisions.
