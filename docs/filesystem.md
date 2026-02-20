@@ -35,6 +35,6 @@ allocDir/
 
 ## Network
 - Tap interfaces: provisioned by Nomad networking
-- Interface configuration: passed to Firecracker via HTTP API after boot
+- Interface configuration: included in initial `vmconfig.json` passed to Firecracker at startup
 - No bridge setup in driver: delegated to Nomad
 - Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)

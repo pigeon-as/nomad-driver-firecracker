@@ -1,7 +1,6 @@
 package jailer
 
 import (
-	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 )
 
@@ -16,8 +15,6 @@ func (c *JailerConfig) Validate() error {
 		return nil
 	}
 
-	var mErr multierror.Error
-
 	if c.ExecFile == "" {
 		c.ExecFile = "firecracker"
 	}
@@ -25,7 +22,7 @@ func (c *JailerConfig) Validate() error {
 		c.JailerBinary = "jailer"
 	}
 
-	return mErr.ErrorOrNil()
+	return nil
 }
 
 func HCLSpec() *hclspec.Spec {

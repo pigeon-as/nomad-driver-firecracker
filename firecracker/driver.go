@@ -541,6 +541,9 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 				)
 				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
 			}
+			if rmErr := os.RemoveAll(snapshotDir); rmErr != nil {
+				d.logger.Warn("failed to clean up snapshot directory after snapshot error", "task_id", taskID, "dir", snapshotDir, "err", rmErr)
+			}
 			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
 		}
 

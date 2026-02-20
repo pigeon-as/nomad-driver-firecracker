@@ -77,7 +77,7 @@ Required fields:
 Optional fields:
 - `network_interface` - tap-based networking (host device + optional MAC)
 
-Note: guest IP configuration is handled inside the VM (cloud-init, systemd-networkd, or custom init).
+Note: Guest IP configuration is handled inside the VM (cloud-init, systemd-networkd, or custom init).
 
 See [example job](example/example.nomad) for complete configuration.
 

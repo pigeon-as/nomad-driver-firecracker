@@ -43,7 +43,7 @@ StandardOutput=journal+console
 
 ## Additional Observability
 
-For structured application logs beyond console output, configure guest to:
+For structured application logs beyond console output, configure the guest to:
 - Send logs to external systems (Syslog, Loki, etc.)
 - Expose metrics via HTTP endpoints
 - Write to files on mounted volumes
