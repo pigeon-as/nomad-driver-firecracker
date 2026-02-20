@@ -8,13 +8,14 @@ allocDir/
 ├── task/               # Task working directory (guest writable)
 ├── secrets/            # Secrets provisioned by Nomad
 ├── jailer/
-│   └── root/           # Jailer chroot
-│       ├── firecracker # Firecracker daemon
-│       ├── run/
-│       │   └── firecracker.socket  # HTTP API socket
-│       ├── dev/
-│       ├── proc/
-│       └── sys/
+│   └── <task_id>/       # Jailer instance (ID set to task ID)
+│       └── root/        # Jailer chroot
+│           ├── firecracker # Firecracker daemon
+│           ├── run/
+│           │   └── firecracker.socket  # HTTP API socket
+│           ├── dev/
+│           ├── proc/
+│           └── sys/
 └── snapshot/           # Snapshot files (SIGSTOP)
     ├── memory.img      # VM memory dump
     └── state.vmstate   # VM hardware state
@@ -36,3 +37,4 @@ allocDir/
 - Tap interfaces: provisioned by Nomad networking
 - Interface configuration: passed to Firecracker via HTTP API after boot
 - No bridge setup in driver: delegated to Nomad
+- Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)
