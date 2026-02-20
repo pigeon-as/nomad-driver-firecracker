@@ -15,11 +15,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/drivers"
 )
 
-// taskHandle should store all relevant runtime information
-// such as process ID if this is a local task or other meta
-// data if this driver deals with external APIs
 type taskHandle struct {
-	// stateLock syncs access to all fields below
 	stateLock sync.RWMutex
 
 	logger          hclog.Logger
@@ -31,9 +27,9 @@ type taskHandle struct {
 	completedAt     time.Time
 	exitResult      *drivers.ExitResult
 	pid             int
-	socketPath      string   // Unix socket path for Firecracker VM communication
-	snapshotMemPath string   // Path to memory dump if suspended
-	snapshotPath    string   // Path to VM state if suspended
+	socketPath      string
+	snapshotMemPath string
+	snapshotPath    string
 }
 
 func (h *taskHandle) TaskStatus() *drivers.TaskStatus {
@@ -66,7 +62,6 @@ func (h *taskHandle) run() {
 	}
 	h.stateLock.Unlock()
 
-	// Wait for task to complete and update exit state
 	ps, err := h.exec.Wait(context.Background())
 	h.stateLock.Lock()
 	defer h.stateLock.Unlock()

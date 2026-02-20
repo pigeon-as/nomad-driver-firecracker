@@ -26,28 +26,16 @@ import (
 )
 
 const (
-	// pluginName is the name of the plugin
-	// this is used for logging and (along with the version) for uniquely
-	// identifying plugin binaries fingerprinted by the client
 	pluginName = "firecracker"
 
-	// pluginVersion allows the client to identify and use newer versions of
-	// an installed plugin
 	pluginVersion = "v0.0.1"
 
-	// fingerprintPeriod is the interval at which the plugin will send
-	// fingerprint responses
 	fingerprintPeriod = 30 * time.Second
 
-	// taskHandleVersion is the version of task handle which this plugin sets
-	// and understands how to decode
-	// this is used to allow modification and migration of the task schema
-	// used by the plugin
 	taskHandleVersion = 1
 )
 
 var (
-	// pluginInfo describes the plugin
 	pluginInfo = &base.PluginInfoResponse{
 		Type:              base.PluginTypeDriver,
 		PluginApiVersions: []string{drivers.ApiVersion010},
@@ -56,51 +44,26 @@ var (
 	}
 )
 
-// TaskState is the runtime state which is encoded in the handle returned to
-// Nomad client.
-// This information is needed to rebuild the task state and handler during
-// recovery.
 type TaskState struct {
 	ReattachConfig  *structs.ReattachConfig
 	TaskConfig      *drivers.TaskConfig
 	StartedAt       time.Time
 	Pid             int
-	SocketPath      string // Unix socket path for communicating with Firecracker VM
-	SnapshotMemPath string // Path to snapshot memory dump (empty if no snapshot)
-	SnapshotPath    string // Path to snapshot VM state (empty if no snapshot)
+	SocketPath      string
+	SnapshotMemPath string
+	SnapshotPath    string
 }
 
-// FirecrackerDriverPlugin implements the Nomad driver interface for running
-// Firecracker microVMs.  The struct is exported only via the factory below –
-// the original skeleton example name has been updated to reflect the actual
-// driver purpose.
 type FirecrackerDriverPlugin struct {
-	// eventer is used to handle multiplexing of TaskEvents calls such that an
-	// event can be broadcast to all callers
 	eventer *eventer.Eventer
-
-	// config is the plugin configuration set by the SetConfig RPC
 	config *Config
-
-	// nomadConfig is the client config from Nomad
 	nomadConfig *base.ClientDriverConfig
-
-	// tasks is the in memory datastore mapping taskIDs to driver handles
 	tasks *taskStore
-
-	// ctx is the context for the driver. It is passed to other subsystems to
-	// coordinate shutdown
 	ctx context.Context
-
-	// signalShutdown is called when the driver is shutting down and cancels
-	// the ctx passed to any subsystems
 	signalShutdown context.CancelFunc
-
-	// logger will log to the Nomad agent
 	logger hclog.Logger
 }
 
-// NewPlugin returns a new example driver plugin
 func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
 	ctx, cancel := context.WithCancel(context.Background())
 	logger = logger.Named(pluginName)
@@ -115,17 +78,14 @@ func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
 	}
 }
 
-// PluginInfo returns information describing the plugin.
 func (d *FirecrackerDriverPlugin) PluginInfo() (*base.PluginInfoResponse, error) {
 	return pluginInfo, nil
 }
 
-// ConfigSchema returns the plugin configuration schema.
 func (d *FirecrackerDriverPlugin) ConfigSchema() (*hclspec.Spec, error) {
 	return configSpec, nil
 }
 
-// SetConfig is called by the client to pass the configuration for the plugin.
 func (d *FirecrackerDriverPlugin) SetConfig(cfg *base.Config) error {
 	var config Config
 	if len(cfg.PluginConfig) != 0 {
@@ -134,15 +94,12 @@ func (d *FirecrackerDriverPlugin) SetConfig(cfg *base.Config) error {
 		}
 	}
 
-	// Save the configuration to the plugin
 	d.config = &config
 
-	// validate global configuration now that we have decoded it
 	if err := d.config.Validate(); err != nil {
 		return err
 	}
 
-	// Save the Nomad agent configuration
 	if cfg.AgentConfig != nil {
 		d.nomadConfig = cfg.AgentConfig.Driver
 	}
@@ -150,29 +107,22 @@ func (d *FirecrackerDriverPlugin) SetConfig(cfg *base.Config) error {
 	return nil
 }
 
-// TaskConfigSchema returns the HCL schema for the configuration of a task.
 func (d *FirecrackerDriverPlugin) TaskConfigSchema() (*hclspec.Spec, error) {
 	return taskConfigSpec, nil
 }
 
-// Capabilities returns the features supported by the driver.
 func (d *FirecrackerDriverPlugin) Capabilities() (*drivers.Capabilities, error) {
 	return capabilities, nil
 }
 
-// Fingerprint returns a channel that will be used to send health information
-// and other driver specific node attributes.
 func (d *FirecrackerDriverPlugin) Fingerprint(ctx context.Context) (<-chan *drivers.Fingerprint, error) {
 	ch := make(chan *drivers.Fingerprint)
 	go d.handleFingerprint(ctx, ch)
 	return ch, nil
 }
 
-// handleFingerprint manages the channel and the flow of fingerprint data.
 func (d *FirecrackerDriverPlugin) handleFingerprint(ctx context.Context, ch chan<- *drivers.Fingerprint) {
 	defer close(ch)
-
-	// Nomad expects the initial fingerprint to be sent immediately
 	ticker := time.NewTimer(0)
 	for {
 		select {
@@ -181,15 +131,12 @@ func (d *FirecrackerDriverPlugin) handleFingerprint(ctx context.Context, ch chan
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
-			// after the initial fingerprint we can set the proper fingerprint
-			// period
 			ticker.Reset(fingerprintPeriod)
 			ch <- d.buildFingerprint()
 		}
 	}
 }
 
-// buildFingerprint returns the driver's fingerprint data
 func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	fp := &drivers.Fingerprint{
 		Attributes:        map[string]*structs.Attribute{},
@@ -197,11 +144,7 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		HealthDescription: drivers.DriverHealthy,
 	}
 
-	// simple health check: ensure the configured Firecracker binary exists and
-	// optionally report its version.  this mirrors the previous shell-based
-	// example but uses the actual exec_file we need anyway.
 	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
-		// nothing to verify, just return healthy
 		return fp
 	}
 
@@ -212,7 +155,6 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		return fp
 	}
 
-	// try to query version; ignore errors but log a warning
 	version := utils.QueryVersion(bin)
 	if version != "" {
 		fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
@@ -221,7 +163,6 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
-// StartTask returns a task handle and a driver network if necessary.
 func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
 	if _, ok := d.tasks.Get(cfg.ID); ok {
 		return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
@@ -232,14 +173,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
 	}
 
-	// run basic semantic validation on the task configuration.  this checks
-	// for required fields and delegates to individual block validators.
 	if err := driverConfig.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
 	}
 
-	// build and serialize the Firecracker VM configuration.  the vm package
-	// encapsulates both SDK validation and the boot-source sanity check.
 	configPath := filepath.Join(cfg.TaskDir().Dir, "vmconfig.json")
 	vmCfg := &vm.Config{
 		BootSource:        driverConfig.BootSource,
@@ -250,10 +187,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
-	// keep a debug copy of the generated JSON in the log (may be large)
 	d.logger.Debug("generated vm configuration", "path", configPath, "json", string(jsonData))
 
-	// no per-task jailer settings; configuration is global to the plugin
 	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		d.logger.Debug("network configuration", "network", driverConfig.NetworkInterfaces)
@@ -271,26 +206,14 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
-	// build the command we will run under Nomad's executor.  the driver is
-	// expected to launch Firecracker via the jailer binary so that we get the
-	// additional namespace and privilege setup; the configuration has already
-	// been validated and defaulted earlier in SetConfig.
-	// the plugin config validation already guarantees the jailer block
-	// exists, but check once more to avoid nil dereference in tests or
-	// accidental invocations without prior SetConfig.
 	if d.config == nil || d.config.Jailer == nil {
 		pluginClient.Kill()
 		return nil, nil, errors.New("jailer configuration missing")
 	}
 
 	jConfig := d.config.Jailer
-	// build dynamic parameters based on Nomad task state
 	params := &jailer.BuildParams{}
 
-	// if the job requested a specific user, attempt to resolve it to
-	// numeric ids.  this is best-effort; failures are logged but do not
-	// prevent the task from starting because the plugin config may already
-	// specify uid/gid or root is acceptable.
 	if cfg.User != "" {
 		if uid, gid, err := jailer.ResolveUserIDs(cfg.User); err != nil {
 			d.logger.Warn("failed to resolve task user for jailer", "user", cfg.User, "err", err)
@@ -300,19 +223,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		}
 	}
 
-	// pass the network namespace path if one was provided by the
-	// driver network manager
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" {
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	// let the jailer builder handle appending firecracker arguments for us
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath, "--log-path", cfg.StderrPath)
 	if err != nil {
 		pluginClient.Kill()
 		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
 	}
-	// purposefully use a short declaration here; execCmd is a local variable
 	execCmd := &executor.ExecCommand{
 		Cmd:        jConfig.Bin(),
 		Args:       jArgs,
@@ -354,7 +273,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	return handle, nil, nil
 }
 
-// RecoverTask recreates the in-memory state of a task from a TaskHandle.
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	if handle == nil {
 		return errors.New("error: handle cannot be nil")
@@ -404,7 +322,6 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		snapshotPath:    taskState.SnapshotPath,
 	}
 
-	// Verify VM is actually running via HTTP health check
 	if h.socketPath != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -425,7 +342,6 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	return nil
 }
 
-// WaitTask returns a channel used to notify Nomad when a task exits.
 func (d *FirecrackerDriverPlugin) WaitTask(ctx context.Context, taskID string) (<-chan *drivers.ExitResult, error) {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
@@ -464,14 +380,12 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 	}
 }
 
-// StopTask stops a running task with the given signal and within the timeout window.
 func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
-	// Attempt graceful shutdown via HTTP API with timeout context
 	if handle.socketPath != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -480,12 +394,10 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		if err := c.SendCtrlAltDel(ctx); err != nil {
 			d.logger.Warn("graceful shutdown failed, will force kill", "err", err)
 		} else {
-			// Graceful shutdown succeeded
 			return nil
 		}
 	}
 
-	// Fallback to executor shutdown if HTTP shutdown failed or socket unavailable
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
@@ -496,7 +408,6 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	return nil
 }
 
-// DestroyTask cleans up and removes a task that has terminated.
 func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
@@ -507,7 +418,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		return errors.New("cannot destroy running task")
 	}
 
-	// If force is set and task is still running, attempt graceful shutdown first
 	if handle.IsRunning() && force {
 		if handle.socketPath != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -520,7 +430,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		}
 	}
 
-	// Force kill if still running or if no socket available
 	if !handle.pluginClient.Exited() {
 		if err := handle.exec.Shutdown("", 0); err != nil {
 			handle.logger.Error("force shutdown failed", "err", err)
@@ -528,7 +437,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		handle.pluginClient.Kill()
 	}
 
-	// Clean up snapshot files if they exist
 	handle.stateLock.RLock()
 	memPath := handle.snapshotMemPath
 	snapPath := handle.snapshotPath
@@ -545,7 +453,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		}
 	}
 
-	// Remove snapshot directory if empty
 	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
 	if err := os.Remove(snapshotDir); err != nil && !os.IsNotExist(err) {
 		d.logger.Debug("snapshot directory not empty or already removed", "path", snapshotDir)
@@ -555,7 +462,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	return nil
 }
 
-// InspectTask returns detailed status information for the referenced taskID.
 func (d *FirecrackerDriverPlugin) InspectTask(taskID string) (*drivers.TaskStatus, error) {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
@@ -565,26 +471,19 @@ func (d *FirecrackerDriverPlugin) InspectTask(taskID string) (*drivers.TaskStatu
 	return handle.TaskStatus(), nil
 }
 
-// TaskStats returns a channel which streams task resource usage at the given interval.
-// Stats are collected from the Firecracker process (resource usage of the VM daemon).
 func (d *FirecrackerDriverPlugin) TaskStats(ctx context.Context, taskID string, interval time.Duration) (<-chan *drivers.TaskResourceUsage, error) {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return nil, drivers.ErrTaskNotFound
 	}
 
-	// Use executor's Stats to get Firecracker process resource usage (CPU, memory).
-	// This provides visibility into the VM daemon resource consumption.
 	return handle.exec.Stats(ctx, interval)
 }
 
-// TaskEvents returns a channel that the plugin can use to emit task related events.
 func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drivers.TaskEvent, error) {
 	return d.eventer.TaskEvents(ctx)
 }
 
-// SignalTask forwards a signal to a task.
-// Supports: SIGTERM/SIGINT (graceful shutdown), SIGSTOP (suspend+snapshot), SIGCONT (resume).
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
@@ -606,7 +505,6 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return c.SendCtrlAltDel(ctx)
 
 	case "SIGSTOP":
-		// Suspend: pause → snapshot → store paths
 		if err := c.Pause(ctx); err != nil {
 			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
 			return fmt.Errorf("pause failed: %v", err)
@@ -626,7 +524,6 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 			return fmt.Errorf("snapshot creation failed: %v", err)
 		}
 
-		// Store paths in handle
 		handle.stateLock.Lock()
 		handle.snapshotMemPath = memPath
 		handle.snapshotPath = snapPath
@@ -636,7 +533,6 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return nil
 
 	case "SIGCONT":
-		// Resume: check snapshot exists → resume
 		handle.stateLock.RLock()
 		memPath := handle.snapshotMemPath
 		snapPath := handle.snapshotPath
@@ -660,9 +556,6 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 	}
 }
 
-// ExecTask does not support executing commands in the VM.
-// Firecracker VMs run full operating systems; command execution is handled
-// by the guest OS via systemd, init, or application-level services/APIs.
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
 	return nil, errors.New("exec is not supported for Firecracker VMs; configure your guest OS to handle command execution externally")
 }

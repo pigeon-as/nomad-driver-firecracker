@@ -5,9 +5,6 @@ import (
 	"strconv"
 )
 
-// ResolveUserIDs resolves a username (or numeric string) to uid/gid. If the
-// input is already numeric we use LookupId; otherwise we Lookup by name.
-// On error both return values are nil.
 func ResolveUserIDs(userStr string) (*int, *int, error) {
 	var u *user.User
 	var err error

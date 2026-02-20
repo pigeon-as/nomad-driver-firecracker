@@ -12,22 +12,15 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
-// Client wraps the Firecracker SDK's low-level Client for HTTP API communication
-// over Unix socket to a running Firecracker daemon.
 type Client struct {
 	client *firecracker.Client
 }
 
-// New creates a new HTTP client for a Firecracker daemon at socketPath.
-// logger parameter is unused (Firecracker SDK requires logrus, we disable SDK logging).
 func New(socketPath string, logger hclog.Logger) *Client {
-	// Firecracker SDK expects logrus.Entry; pass nil to disable SDK logging
 	fc := firecracker.NewClient(socketPath, nil, false)
 	return &Client{client: fc}
 }
 
-// GetInstanceInfo queries the running VM's current state.
-// Returns error if daemon is unreachable (useful for recovery verification).
 func (c *Client) GetInstanceInfo(ctx context.Context) (*models.InstanceInfo, error) {
 	if c == nil || c.client == nil {
 		return nil, errors.New("client is not initialized")
@@ -39,7 +32,6 @@ func (c *Client) GetInstanceInfo(ctx context.Context) (*models.InstanceInfo, err
 	return resp.Payload, nil
 }
 
-// SendCtrlAltDel sends Ctrl+Alt+Del to the VM (graceful shutdown signal).
 func (c *Client) SendCtrlAltDel(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -51,7 +43,6 @@ func (c *Client) SendCtrlAltDel(ctx context.Context) error {
 	return err
 }
 
-// Pause pauses VM execution. Prepare for CreateSnapshot.
 func (c *Client) Pause(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -63,7 +54,6 @@ func (c *Client) Pause(ctx context.Context) error {
 	return err
 }
 
-// Resume resumes a paused VM (after loading from snapshot or normal pause).
 func (c *Client) Resume(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -75,8 +65,6 @@ func (c *Client) Resume(ctx context.Context) error {
 	return err
 }
 
-// CreateSnapshot persists VM memory and hardware state to files.
-// VM must be paused before calling this.
 func (c *Client) CreateSnapshot(ctx context.Context, memPath, snapPath string) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -90,9 +78,6 @@ func (c *Client) CreateSnapshot(ctx context.Context, memPath, snapPath string) e
 	return err
 }
 
-// SendSignal maps Nomad signals to Firecracker HTTP actions:
-// - SIGTERM, SIGINT: sends Ctrl+Alt+Del (graceful shutdown)
-// - SIGKILL, others: returns error (let Nomad escalate to StopTask)
 func (c *Client) SendSignal(ctx context.Context, signal string) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -108,7 +93,6 @@ func (c *Client) SendSignal(ctx context.Context, signal string) error {
 	}
 }
 
-// strPtr returns a pointer to a string
 func strPtr(s string) *string {
 	return &s
 }

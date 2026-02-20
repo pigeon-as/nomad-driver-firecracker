@@ -14,8 +14,6 @@ import (
 	drivers "github.com/hashicorp/nomad/plugins/drivers"
 )
 
-// ToSDK converts a VM Config to a firecracker-go-sdk FullVMConfiguration.
-// It applies resource constraints if provided and validates the result.
 func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, error) {
 	if cfg == nil {
 		return nil, errors.New("vm config is required")
@@ -50,9 +48,6 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 		}
 	}
 
-	// SDK validation catches most problems, but it currently doesn't enforce
-	// that a boot source is provided. We perform that check here so callers
-	// can rely on ToSDK returning a usable object.
 	if vmCfg.BootSource == nil || vmCfg.BootSource.KernelImagePath == nil || *vmCfg.BootSource.KernelImagePath == "" {
 		return vmCfg, errors.New("boot_source.kernel_image_path must be provided")
 	}
@@ -64,7 +59,6 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	return vmCfg, nil
 }
 
-// Marshal serializes a VM Config to JSON bytes.
 func Marshal(cfg *Config, res *drivers.Resources) ([]byte, error) {
 	vmCfg, err := ToSDK(cfg, res)
 	if err != nil {
@@ -73,9 +67,6 @@ func Marshal(cfg *Config, res *drivers.Resources) ([]byte, error) {
 	return json.Marshal(vmCfg)
 }
 
-// BuildVMConfig is the main entry point for building and writing a VM configuration.
-// It converts the Config to SDK models, serializes to JSON, and writes to disk.
-// Returns the serialized bytes for logging or debugging.
 func BuildVMConfig(path string, cfg *Config, res *drivers.Resources) ([]byte, error) {
 	data, err := Marshal(cfg, res)
 	if err != nil {
