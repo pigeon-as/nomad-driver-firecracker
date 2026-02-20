@@ -125,6 +125,7 @@ func (d *FirecrackerDriverPlugin) Fingerprint(ctx context.Context) (<-chan *driv
 func (d *FirecrackerDriverPlugin) handleFingerprint(ctx context.Context, ch chan<- *drivers.Fingerprint) {
 	defer close(ch)
 	ticker := time.NewTimer(0)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
