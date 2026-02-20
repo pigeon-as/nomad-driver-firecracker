@@ -31,11 +31,10 @@ var (
 		"boot_source": boot.HCLSpec(),
 		"drive":       hclspec.NewBlockList("drive", drive.HCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
-			"allow_mmds": hclspec.NewAttr("allow_mmds", "bool", false),
-			"static_configuration": hclspec.NewBlock("static_configuration", hclspec.NewObject(map[string]*hclspec.Spec{
+			"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
 				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
 				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
-				"ip_configuration": hclspec.NewBlock("ip_configuration", hclspec.NewObject(map[string]*hclspec.Spec{
+				"ip_configuration": hclspec.NewBlock("ip_configuration", false, hclspec.NewObject(map[string]*hclspec.Spec{
 					"ip_addr":     hclspec.NewAttr("ip_addr", "string", true),
 					"gateway":     hclspec.NewAttr("gateway", "string", true),
 					"nameservers": hclspec.NewAttr("nameservers", "list(string)", false),
@@ -65,7 +64,6 @@ func (c *Config) Validate() error {
 	if err := c.Jailer.Validate(); err != nil {
 		return err
 	}
-	c.Jailer.ChrootBaseDir = ""
 
 	return nil
 }
@@ -87,10 +85,20 @@ func (c *TaskConfig) Validate() error {
 		return err
 	}
 
+	hasRootDevice := false
 	for i, d := range c.Drives {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("drive[%d]: %v", i, err)
 		}
+		if d.IsRootDevice {
+			if hasRootDevice {
+				return errors.New("multiple drives marked as root device; only one drive can have is_root_device = true")
+			}
+			hasRootDevice = true
+		}
+	}
+	if len(c.Drives) > 0 && !hasRootDevice {
+		return errors.New("at least one drive must be marked as root device with is_root_device = true")
 	}
 
 	if len(c.NetworkInterfaces) > 0 {

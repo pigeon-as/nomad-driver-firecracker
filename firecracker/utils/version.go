@@ -1,25 +1,22 @@
-//go:build !windows
-// +build !windows
-
 package utils
 
 import (
 	"context"
+	"os/exec"
 	"regexp"
-
-	fc "github.com/firecracker-microvm/firecracker-go-sdk"
+	"time"
 )
 
 func QueryVersion(bin string) string {
-	cmd := fc.DefaultVMMCommandBuilder.
-		WithBin(bin).
-		WithArgs([]string{"--version"}).
-		Build(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, "--version")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	re := regexp.MustCompile("[0-9]+\\.[0-9]+\\.[0-9]+")
+	re := regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 	version := re.FindString(string(out))
 	return version
 }

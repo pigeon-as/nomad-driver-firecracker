@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -149,13 +150,14 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	}
 
 	bin := d.config.Jailer.ExecFile
-	if _, err := os.Stat(bin); err != nil {
+	binPath, err := exec.LookPath(bin)
+	if err != nil {
 		fp.Health = drivers.HealthStateUndetected
-		fp.HealthDescription = fmt.Sprintf("firecracker binary %s not found", bin)
+		fp.HealthDescription = fmt.Sprintf("firecracker binary %s not found: %v", bin, err)
 		return fp
 	}
 
-	version := utils.QueryVersion(bin)
+	version := utils.QueryVersion(binPath)
 	if version != "" {
 		fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
 	}
@@ -331,12 +333,9 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		if err != nil {
 			return fmt.Errorf("recovered VM failed health check at socket %s: %v", h.socketPath, err)
 		}
-		d.logger.Debug("recovered VM is responsive", "vm_id", info.InstanceID, "task_id", h.taskConfig.ID)
-	} else {
-		d.logger.Warn("socket path not available for health check during recovery", "task_id", h.taskConfig.ID)
+	if info != nil {
+		d.logger.Debug("recovered VM is responsive", "task_id", h.taskConfig.ID)
 	}
-
-	d.tasks.Set(taskState.TaskConfig.ID, h)
 
 	go h.run()
 	return nil

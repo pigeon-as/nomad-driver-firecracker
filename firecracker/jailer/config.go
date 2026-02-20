@@ -6,9 +6,9 @@ import (
 )
 
 type JailerConfig struct {
-	ExecFile      string
-	JailerBinary  string
-	ChrootBaseDir string
+	ExecFile      string `codec:"exec_file"`
+	JailerBinary  string `codec:"jailer_binary"`
+	ChrootBaseDir string `codec:"chroot_base_dir"`
 }
 
 func (n *JailerConfig) Validate() error {
@@ -25,8 +25,6 @@ func (n *JailerConfig) Validate() error {
 	if n.JailerBinary == "" {
 		n.JailerBinary = "jailer"
 	}
-
-	n.ChrootBaseDir = ""
 
 	return mErr.ErrorOrNil()
 }
