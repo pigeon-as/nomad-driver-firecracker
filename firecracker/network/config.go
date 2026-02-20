@@ -20,7 +20,6 @@ func (c *Config) Validate() error {
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
 		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
-			"allow_mmds": hclspec.NewAttr("allow_mmds", "bool", false),
 			"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
 				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
 				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
@@ -39,7 +38,6 @@ type NetworkInterfaces []NetworkInterface
 
 type NetworkInterface struct {
 	StaticConfiguration *StaticNetworkConfiguration `codec:"static_configuration"`
-	AllowMMDS           bool                        `codec:"allow_mmds"`
 	InRateLimiter       *models.RateLimiter         `codec:"in_rate_limiter"`
 	OutRateLimiter      *models.RateLimiter         `codec:"out_rate_limiter"`
 }
@@ -52,7 +50,7 @@ type StaticNetworkConfiguration struct {
 
 func (staticConf StaticNetworkConfiguration) validate() error {
 	if staticConf.HostDevName == "" {
-		return fmt.Errorf("HostDevName must be provided if StaticNetworkConfiguration is provided: %+v", staticConf)
+		return fmt.Errorf("host_dev_name must be provided if static_configuration is provided: %+v", staticConf)
 	}
 	if staticConf.IPConfiguration != nil {
 		if err := staticConf.IPConfiguration.validate(); err != nil {
