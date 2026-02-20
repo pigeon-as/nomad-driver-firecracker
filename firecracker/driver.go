@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
@@ -64,16 +65,8 @@ type TaskState struct {
 	ReattachConfig *structs.ReattachConfig
 	TaskConfig     *drivers.TaskConfig
 	StartedAt      time.Time
-
-	// TODO: add any extra important values that must be persisted in order
-	// to restore a task.
-	//
-	// The plugin keeps track of its running tasks in a in-memory data
-	// structure. If the plugin crashes, this data will be lost, so Nomad
-	// will respawn a new instance of the plugin and try to restore its
-	// in-memory representation of the running tasks using the RecoverTask()
-	// method below.
-	Pid int
+	Pid            int
+	SocketPath     string // Unix socket path for communicating with Firecracker VM
 }
 
 // FirecrackerDriverPlugin implements the Nomad driver interface for running
@@ -369,6 +362,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
+		socketPath:   filepath.Join(cfg.TaskDir().Dir, "jailer/root/run/firecracker.socket"),
 	}
 
 	driverState := TaskState{
@@ -376,6 +370,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Pid:            ps.Pid,
 		TaskConfig:     cfg,
 		StartedAt:      h.startedAt,
+		SocketPath:     h.socketPath,
 	}
 
 	if err := handle.SetDriverState(&driverState); err != nil {
@@ -438,6 +433,8 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		procState:    drivers.TaskStateRunning,
 		startedAt:    taskState.StartedAt,
 		exitResult:   &drivers.ExitResult{},
+		socketPath:   taskState.SocketPath,
+		logger:       d.logger,
 	}
 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
@@ -502,15 +499,21 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// TODO: implement driver specific logic to stop a task.
-	//
-	// The StopTask function is expected to stop a running task by sending the
-	// given signal to it. If the task does not stop during the given timeout,
-	// the driver must forcefully kill the task.
-	//
-	// In the example below we let the executor handle the task shutdown
-	// process for us, but you might need to customize this for your own
-	// implementation.
+	// Attempt graceful shutdown via HTTP API with timeout context
+	if handle.socketPath != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		c := client.New(handle.socketPath)
+		if err := c.Shutdown(ctx); err != nil {
+			d.logger.Warn("graceful shutdown failed, will force kill", "err", err)
+		} else {
+			// Graceful shutdown succeeded
+			return nil
+		}
+	}
+
+	// Fallback to executor shutdown if HTTP shutdown failed or socket unavailable
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil

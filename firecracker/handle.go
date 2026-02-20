@@ -30,9 +30,8 @@ type taskHandle struct {
 	startedAt    time.Time
 	completedAt  time.Time
 	exitResult   *drivers.ExitResult
-
-	// TODO: add any extra relevant information about the task.
-	pid int
+	pid          int
+	socketPath   string // Unix socket path for Firecracker VM communication
 }
 
 func (h *taskHandle) TaskStatus() *drivers.TaskStatus {
