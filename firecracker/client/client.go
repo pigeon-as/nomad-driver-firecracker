@@ -9,7 +9,7 @@ import (
 
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
-	"github.com/sirupsen/logrus"
+	"github.com/hashicorp/go-hclog"
 )
 
 // Client wraps the Firecracker SDK's low-level Client for HTTP API communication
@@ -19,9 +19,10 @@ type Client struct {
 }
 
 // New creates a new HTTP client for a Firecracker daemon at socketPath.
-// Pass nil for logger to disable SDK logging, or a logrus.Entry for debug output.
-func New(socketPath string, logger *logrus.Entry) *Client {
-	fc := firecracker.NewClient(socketPath, logger, false)
+// logger parameter is unused (Firecracker SDK requires logrus, we disable SDK logging).
+func New(socketPath string, logger hclog.Logger) *Client {
+	// Firecracker SDK expects logrus.Entry; pass nil to disable SDK logging
+	fc := firecracker.NewClient(socketPath, nil, false)
 	return &Client{client: fc}
 }
 

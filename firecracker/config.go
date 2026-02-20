@@ -41,13 +41,7 @@ var (
 	})
 
 	// capabilities indicates what optional features this driver supports
-	// this should be set according to the target run time.
 	capabilities = &drivers.Capabilities{
-		// TODO: set plugin's capabilities
-		//
-		// The plugin's capabilities signal Nomad which extra functionalities
-		// are supported. For a list of available options check the docs page:
-		// https://godoc.org/github.com/hashicorp/nomad/plugins/drivers#Capabilities
 		SendSignals: true,
 		Exec:        false,
 	}

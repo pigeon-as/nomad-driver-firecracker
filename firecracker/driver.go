@@ -143,23 +143,10 @@ func (d *FirecrackerDriverPlugin) SetConfig(cfg *base.Config) error {
 		return err
 	}
 
-	// TODO: parse and validated any configuration value if necessary.
-	//
-	// If your driver agent configuration requires any complex validation
-	// (some dependency between attributes) or special data parsing (the
-	// string "10s" into a time.Interval) you can do it here and update the
-	// value in d.config.
-	//
-
 	// Save the Nomad agent configuration
 	if cfg.AgentConfig != nil {
 		d.nomadConfig = cfg.AgentConfig.Driver
 	}
-
-	// TODO: initialize any extra requirements if necessary.
-	//
-	// Here you can use the config values to initialize any resources that are
-	// shared by all tasks that use this driver, such as a daemon process.
 
 	return nil
 }
@@ -287,22 +274,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		}
 	}()
 
-	// TODO: implement driver specific mechanism to start the task.
-	//
-	// Once the task is started you will need to store any relevant runtime
-	// information in a taskHandle and TaskState. The taskHandle will be
-	// stored in-memory in the plugin and will be used to interact with the
-	// task.
-	//
-	// The TaskState will be returned to the Nomad client inside a
-	// drivers.TaskHandle instance. This TaskHandle will be sent back to plugin
-	// if the task ever needs to be recovered, so the TaskState should contain
-	// enough information to handle that.
-	//
-	// In the example below we use an executor to fork a process to run our
-	// greeter. The executor is then stored in the handle so we can access it
-	// later and the the plugin.Client is used to generate a reattach
-	// configuration that can be used to recover communication with the task.
 	executorConfig := &executor.ExecutorConfig{
 		LogFile:  filepath.Join(cfg.TaskDir().Dir, "executor.out"),
 		LogLevel: "debug",
@@ -423,13 +394,6 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		}
 	}
 
-	// TODO: implement driver specific logic to recover a task.
-	//
-	// Recovering a task involves recreating and storing a taskHandle as if the
-	// task was just started.
-	//
-	// In the example below we use the executor to re-attach to the process
-	// that was created when the task first started.
 	plugRC, err := structs.ReattachConfigToGoPlugin(taskState.ReattachConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build ReattachConfig from taskConfig state: %v", err)
@@ -491,16 +455,6 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 	defer close(ch)
 	var result *drivers.ExitResult
 
-	// TODO: implement driver specific logic to notify Nomad the task has been
-	// completed and what was the exit result.
-	//
-	// When a result is sent in the result channel Nomad will stop the task and
-	// emit an event that an operator can use to get an insight on why the task
-	// stopped.
-	//
-	// In the example below we block and wait until the executor finishes
-	// running, at which point we send the exit code and signal in the result
-	// channel.
 	ps, err := handle.exec.Wait(ctx)
 	if err != nil {
 		result = &drivers.ExitResult{

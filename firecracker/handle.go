@@ -68,7 +68,7 @@ func (h *taskHandle) run() {
 	}
 	h.stateLock.Unlock()
 
-	// TODO: wait for your task to complete and upate its state.
+	// Wait for task to complete and update exit state
 	ps, err := h.exec.Wait(context.Background())
 	h.stateLock.Lock()
 	defer h.stateLock.Unlock()
