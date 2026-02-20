@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/hashicorp/consul-template/signals"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/drivers/shared/executor"
@@ -594,26 +593,33 @@ func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drive
 }
 
 // SignalTask forwards a signal to a task.
-// This is an optional capability.
+// Maps signals to Firecracker HTTP API actions:
+// - SIGTERM/SIGINT: graceful shutdown via sendCtrlAltDel
+// - SIGKILL: returns error (handled by StopTask)
+// - Others: returns error (not supported)
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
-	// TODO: implement driver specific signal handling logic.
-	//
-	// The given signal must be forwarded to the target taskID. If this plugin
-	// doesn't support receiving signals (capability SendSignals is set to
-	// false) you can just return nil.
-	sig := os.Interrupt
-	if s, ok := signals.SignalLookup[signal]; ok {
-		sig = s
-	} else {
-		d.logger.Warn("unknown signal to send to task, using SIGINT instead", "signal", signal, "task_id", handle.taskConfig.ID)
-
+	// Only attempt HTTP-based signals if socket path is known
+	if handle.socketPath == "" {
+		d.logger.Warn("cannot send signal: no socket path available", "task_id", taskID)
+		return errors.New("socket path not available")
 	}
-	return handle.exec.Signal(sig)
+
+	// Create a 5-second timeout context for HTTP signal operation
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := client.New(handle.socketPath)
+	if err := c.SendSignal(ctx, signal); err != nil {
+		d.logger.Warn("signal operation failed", "task_id", taskID, "signal", signal, "err", err)
+		return err
+	}
+
+	return nil
 }
 
 // ExecTask returns the result of executing the given command inside a task.

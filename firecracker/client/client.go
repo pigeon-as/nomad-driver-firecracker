@@ -59,3 +59,25 @@ func (c *Client) Resume(ctx context.Context) error {
 	}
 	return c.machine.Resume(ctx)
 }
+
+// SendSignal sends a signal to the VM. Maps Nomad signals to Firecracker actions:
+// - SIGTERM, SIGINT: sends Ctrl+Alt+Del (graceful shutdown)
+// - Other signals: returns error (not supported via HTTP; use executor for force kill)
+func (c *Client) SendSignal(ctx context.Context, signal string) error {
+	if c == nil || c.machine == nil {
+		return errors.New("client is not initialized")
+	}
+
+	// Map Nomad signal strings to Firecracker actions
+	switch signal {
+	case "SIGTERM", "SIGINT":
+		// sendCtrlAltDel is the graceful shutdown signal for Firecracker
+		return c.machine.SendCtrlAltDel(ctx)
+	case "SIGKILL":
+		// SIGKILL should be handled by StopTask (via executor force-kill)
+		return errors.New("SIGKILL not supported via HTTP API; use StopTask for force kill")
+	default:
+		// Other signals not supported via HTTP
+		return errors.New("signal not supported via Firecracker HTTP API: " + signal)
+	}
+}
