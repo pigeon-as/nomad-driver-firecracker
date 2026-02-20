@@ -30,14 +30,16 @@ job "example" {
         }
         
         drive {
-          drive_id       = "root"
           path_on_host   = "/path/to/rootfs.ext4"
           is_root_device = true
+          is_read_only   = false
         }
         
         network_interface {
-          iface_id      = "eth0"
-          host_dev_name = "tap0"
+          static_configuration {
+            host_dev_name = "tap0"
+            mac_address   = "02:fc:00:00:00:01"
+          }
         }
       }
       
@@ -73,7 +75,9 @@ Required fields:
 - `drive` - at least one root drive with `is_root_device = true`
 
 Optional fields:
-- `network_interface` - tap-based networking
+- `network_interface` - tap-based networking (host device + optional MAC)
+
+Note: guest IP configuration is handled inside the VM (cloud-init, systemd-networkd, or custom init).
 
 See [example job](example/example.nomad) for complete configuration.
 

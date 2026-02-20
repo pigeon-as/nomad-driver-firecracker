@@ -1,11 +1,14 @@
-PLUGIN_BINARY=hello-driver
+PLUGIN_BINARY=nomad-driver-firecracker
 export GO111MODULE=on
 
 default: build
 
-.PHONY: clean
+.PHONY: clean build test
 clean: ## Remove build artifacts
 	rm -rf ${PLUGIN_BINARY}
 
 build:
 	go build -o ${PLUGIN_BINARY} .
+
+test:
+	go test ./...
