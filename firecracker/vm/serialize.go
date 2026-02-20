@@ -1,9 +1,6 @@
 //go:build !windows
 // +build !windows
 
-// Package vm contains helper functions for building Firecracker VM
-// configurations from task-level settings.
-
 package vm
 
 import (
