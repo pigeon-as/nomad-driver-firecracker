@@ -28,8 +28,8 @@ var (
 	})
 
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"boot_source":       boot.HCLSpec(),
-		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
+		"boot_source": boot.HCLSpec(),
+		"drive":       hclspec.NewBlockList("drive", drive.HCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
 			"allow_mmds": hclspec.NewAttr("allow_mmds", "bool", false),
 			"static_configuration": hclspec.NewBlock("static_configuration", hclspec.NewObject(map[string]*hclspec.Spec{

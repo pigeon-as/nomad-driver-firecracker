@@ -36,8 +36,12 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	if res != nil && res.NomadResources != nil {
 		mc := &models.MachineConfiguration{}
 		if res.NomadResources.Cpu.CpuShares > 0 {
-			v := int64(res.NomadResources.Cpu.CpuShares)
-			mc.VcpuCount = &v
+			shares := res.NomadResources.Cpu.CpuShares
+			vcpuCount := int64((shares + 1023) / 1024)
+			if vcpuCount < 1 {
+				vcpuCount = 1
+			}
+			mc.VcpuCount = &vcpuCount
 		}
 		if res.NomadResources.Memory.MemoryMB > 0 {
 			m := int64(res.NomadResources.Memory.MemoryMB)
@@ -72,7 +76,7 @@ func BuildVMConfig(path string, cfg *Config, res *drivers.Resources) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return nil, err
 	}
 	return data, nil

@@ -55,13 +55,13 @@ type TaskState struct {
 }
 
 type FirecrackerDriverPlugin struct {
-	eventer *eventer.Eventer
-	config *Config
-	nomadConfig *base.ClientDriverConfig
-	tasks *taskStore
-	ctx context.Context
+	eventer        *eventer.Eventer
+	config         *Config
+	nomadConfig    *base.ClientDriverConfig
+	tasks          *taskStore
+	ctx            context.Context
 	signalShutdown context.CancelFunc
-	logger hclog.Logger
+	logger         hclog.Logger
 }
 
 func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
@@ -326,7 +326,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		c := client.New(h.socketPath, d.logger)
+		c := client.New(h.socketPath)
 		info, err := c.GetInstanceInfo(ctx)
 		if err != nil {
 			return fmt.Errorf("recovered VM failed health check at socket %s: %v", h.socketPath, err)
@@ -390,7 +390,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		c := client.New(handle.socketPath, d.logger)
+		c := client.New(handle.socketPath)
 		if err := c.SendCtrlAltDel(ctx); err != nil {
 			d.logger.Warn("graceful shutdown failed, will force kill", "err", err)
 		} else {
@@ -423,7 +423,7 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 
-			c := client.New(handle.socketPath, d.logger)
+			c := client.New(handle.socketPath)
 			if err := c.SendCtrlAltDel(ctx); err != nil {
 				d.logger.Debug("graceful shutdown during destroy failed, will force kill", "err", err)
 			}
@@ -498,7 +498,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	c := client.New(handle.socketPath, d.logger)
+	c := client.New(handle.socketPath)
 
 	switch signal {
 	case "SIGTERM", "SIGINT":
@@ -520,8 +520,12 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		snapPath := filepath.Join(snapshotDir, "state.vmstate")
 
 		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
-			d.logger.Warn("snapshot creation failed", "task_id", taskID, "err", err)
-			return fmt.Errorf("snapshot creation failed: %v", err)
+			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
+			if resumeErr := c.Resume(ctx); resumeErr != nil {
+				d.logger.Error("resume failed after snapshot error", "task_id", taskID, "snapshot_err", err, "resume_err", resumeErr)
+				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v)", err, resumeErr)
+			}
+			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
 		}
 
 		handle.stateLock.Lock()

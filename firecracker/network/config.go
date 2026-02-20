@@ -18,9 +18,9 @@ func (c *Config) Validate() error {
 }
 
 func HCLSpec() *hclspec.Spec {
-	return hclspec.NewObject(map[string]*hclspec.Spec{
-	})
+	return hclspec.NewObject(map[string]*hclspec.Spec{})
 }
+
 type NetworkInterfaces []NetworkInterface
 
 type NetworkInterface struct {
@@ -56,10 +56,11 @@ type IPConfiguration struct {
 }
 
 func (ipConf IPConfiguration) validate() error {
-	for _, ip := range []net.IP{ipConf.IPAddr.IP, ipConf.Gateway} {
-		if ip.To4() == nil {
-			return fmt.Errorf("invalid ip, only ipv4 addresses are supported: %+v", ip)
-		}
+	if ipConf.IPAddr.IP == nil || ipConf.IPAddr.IP.To4() == nil {
+		return fmt.Errorf("invalid ip_addr, only ipv4 addresses are supported: %+v", ipConf.IPAddr)
+	}
+	if ipConf.Gateway == nil || ipConf.Gateway.To4() == nil {
+		return fmt.Errorf("invalid gateway, only ipv4 addresses are supported: %+v", ipConf.Gateway)
 	}
 	if len(ipConf.Nameservers) > 2 {
 		return fmt.Errorf("cannot specify more than 2 nameservers: %+v", ipConf.Nameservers)
@@ -73,14 +74,11 @@ func (networkInterfaces NetworkInterfaces) Validate() error {
 
 func (networkInterfaces NetworkInterfaces) validate() error {
 	for _, iface := range networkInterfaces {
-		hasStaticInterface := iface.StaticConfiguration != nil
-		if !hasStaticInterface {
+		if iface.StaticConfiguration == nil {
 			return fmt.Errorf("static_configuration is required for each network interface: %+v", iface)
 		}
-		if hasStaticInterface {
-			if err := iface.StaticConfiguration.validate(); err != nil {
-				return err
-			}
+		if err := iface.StaticConfiguration.validate(); err != nil {
+			return err
 		}
 	}
 	return nil

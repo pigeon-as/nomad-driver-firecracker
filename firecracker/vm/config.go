@@ -5,6 +5,7 @@ package vm
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
@@ -15,7 +16,7 @@ type Config struct {
 	BootSource        *boot.BootSource
 	Drives            []drive.Drive
 	NetworkInterfaces network.NetworkInterfaces
-	Resources interface{}
+	Resources         interface{}
 }
 
 func (c *Config) Validate() error {
@@ -31,7 +32,7 @@ func (c *Config) Validate() error {
 
 	for i, d := range c.Drives {
 		if err := d.Validate(); err != nil {
-			return err
+			return fmt.Errorf("drive[%d]: %v", i, err)
 		}
 	}
 

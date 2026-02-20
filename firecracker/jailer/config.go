@@ -6,8 +6,8 @@ import (
 )
 
 type JailerConfig struct {
-	ExecFile string
-	JailerBinary string
+	ExecFile      string
+	JailerBinary  string
 	ChrootBaseDir string
 }
 
@@ -39,9 +39,9 @@ func HCLSpec() *hclspec.Spec {
 }
 
 type BuildParams struct {
-	UID *int
-	GID *int
-	NetNS string
+	UID           *int
+	GID           *int
+	NetNS         string
 	CgroupVersion string
 }
 

@@ -9,14 +9,13 @@ import (
 
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
-	"github.com/hashicorp/go-hclog"
 )
 
 type Client struct {
 	client *firecracker.Client
 }
 
-func New(socketPath string, logger hclog.Logger) *Client {
+func New(socketPath string) *Client {
 	fc := firecracker.NewClient(socketPath, nil, false)
 	return &Client{client: fc}
 }

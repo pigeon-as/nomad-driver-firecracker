@@ -1,4 +1,3 @@
-// TODO: update the module path below to match your own repository
 module github.com/pigeon-as/nomad-driver-firecracker
 
 go 1.25.3
