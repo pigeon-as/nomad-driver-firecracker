@@ -375,7 +375,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	}
 
 	if len(driverConfig.NetworkInterfaces) > 0 {
-		if err := driverConfig.NetworkInterfaces.validate(nil); err != nil {
+		if err := driverConfig.NetworkInterfaces.Validate(); err != nil {
 			return fmt.Errorf("invalid network configuration on recover: %v", err)
 		}
 	}

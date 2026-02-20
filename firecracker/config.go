@@ -37,7 +37,19 @@ var (
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
 		"boot_source":       boot.HCLSpec(),
 		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
-		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(nil)),
+		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
+			"allow_mmds": hclspec.NewAttr("allow_mmds", "bool", false),
+			"static_configuration": hclspec.NewBlock("static_configuration", hclspec.NewObject(map[string]*hclspec.Spec{
+				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
+				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
+				"ip_configuration": hclspec.NewBlock("ip_configuration", hclspec.NewObject(map[string]*hclspec.Spec{
+					"ip_addr":     hclspec.NewAttr("ip_addr", "string", true),
+					"gateway":     hclspec.NewAttr("gateway", "string", true),
+					"nameservers": hclspec.NewAttr("nameservers", "list(string)", false),
+					"if_name":     hclspec.NewAttr("if_name", "string", false),
+				})),
+			})),
+		})),
 	})
 
 	// capabilities indicates what optional features this driver supports
