@@ -1,7 +1,7 @@
 // Copyright IBM Corp. 2019, 2025
 // SPDX-License-Identifier: MPL-2.0
 
-package hello
+package firecracker
 
 import (
 	"context"
@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/hashicorp/consul-template/signals"
@@ -21,17 +23,19 @@ import (
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
+
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 )
 
 const (
 	// pluginName is the name of the plugin
 	// this is used for logging and (along with the version) for uniquely
 	// identifying plugin binaries fingerprinted by the client
-	pluginName = "hello-world-example"
+	pluginName = "firecracker"
 
 	// pluginVersion allows the client to identify and use newer versions of
 	// an installed plugin
-	pluginVersion = "v0.1.0"
+	pluginVersion = "v0.0.1"
 
 	// fingerprintPeriod is the interval at which the plugin will send
 	// fingerprint responses
@@ -52,92 +56,7 @@ var (
 		PluginVersion:     pluginVersion,
 		Name:              pluginName,
 	}
-
-	// configSpec is the specification of the plugin's configuration
-	// this is used to validate the configuration specified for the plugin
-	// on the client.
-	// this is not global, but can be specified on a per-client basis.
-	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		// TODO: define plugin's agent configuration schema.
-		//
-		// The schema should be defined using HCL specs and it will be used to
-		// validate the agent configuration provided by the user in the
-		// `plugin` stanza (https://www.nomadproject.io/docs/configuration/plugin.html).
-		//
-		// For example, for the schema below a valid configuration would be:
-		//
-		//   plugin "hello-driver-plugin" {
-		//     config {
-		//       shell = "fish"
-		//     }
-		//   }
-		"shell": hclspec.NewDefault(
-			hclspec.NewAttr("shell", "string", false),
-			hclspec.NewLiteral(`"bash"`),
-		),
-	})
-
-	// taskConfigSpec is the specification of the plugin's configuration for
-	// a task
-	// this is used to validated the configuration specified for the plugin
-	// when a job is submitted.
-	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		// TODO: define plugin's task configuration schema
-		//
-		// The schema should be defined using HCL specs and it will be used to
-		// validate the task configuration provided by the user when they
-		// submit a job.
-		//
-		// For example, for the schema below a valid task would be:
-		//   job "example" {
-		//     group "example" {
-		//       task "say-hi" {
-		//         driver = "hello-driver-plugin"
-		//         config {
-		//           greeting = "Hi"
-		//         }
-		//       }
-		//     }
-		//   }
-		"greeting": hclspec.NewDefault(
-			hclspec.NewAttr("greeting", "string", false),
-			hclspec.NewLiteral(`"Hello, World!"`),
-		),
-	})
-
-	// capabilities indicates what optional features this driver supports
-	// this should be set according to the target run time.
-	capabilities = &drivers.Capabilities{
-		// TODO: set plugin's capabilities
-		//
-		// The plugin's capabilities signal Nomad which extra functionalities
-		// are supported. For a list of available options check the docs page:
-		// https://godoc.org/github.com/hashicorp/nomad/plugins/drivers#Capabilities
-		SendSignals: true,
-		Exec:        false,
-	}
 )
-
-// Config contains configuration information for the plugin
-type Config struct {
-	// TODO: create decoded plugin configuration struct
-	//
-	// This struct is the decoded version of the schema defined in the
-	// configSpec variable above. It's used to convert the HCL configuration
-	// passed by the Nomad agent into Go contructs.
-	Shell string `codec:"shell"`
-}
-
-// TaskConfig contains configuration information for a task that runs with
-// this plugin
-type TaskConfig struct {
-	// TODO: create decoded plugin task configuration struct
-	//
-	// This struct is the decoded version of the schema defined in the
-	// taskConfigSpec variable above. It's used to convert the string
-	// configuration for the task into Go contructs.
-	Greeting string `codec:"greeting"`
-}
 
 // TaskState is the runtime state which is encoded in the handle returned to
 // Nomad client.
@@ -223,6 +142,11 @@ func (d *HelloDriverPlugin) SetConfig(cfg *base.Config) error {
 
 	// Save the configuration to the plugin
 	d.config = &config
+
+	// validate global configuration now that we have decoded it
+	if err := d.config.Validate(); err != nil {
+		return err
+	}
 
 	// TODO: parse and validated any configuration value if necessary.
 	//
@@ -339,6 +263,31 @@ func (d *HelloDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
+// lookupUserIDs resolves a username (or numeric string) to uid/gid.  If
+// the input is already numeric we use LookupId; otherwise we Lookup by name.
+// On error both return values are nil.
+func lookupUserIDs(userStr string) (*int, *int, error) {
+	var u *user.User
+	var err error
+	if _, err = strconv.Atoi(userStr); err == nil {
+		u, err = user.LookupId(userStr)
+	} else {
+		u, err = user.Lookup(userStr)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return &uid, nil, err
+	}
+	return &uid, &gid, nil
+}
+
 // StartTask returns a task handle and a driver network if necessary.
 func (d *HelloDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
 	if _, ok := d.tasks.Get(cfg.ID); ok {
@@ -350,7 +299,26 @@ func (d *HelloDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHan
 		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
 	}
 
+	// if the plugin was configured with default interfaces and the task did not
+	// supply any, inherit them now.  this allows operators to apply cluster-wide
+	// defaults while still letting jobs override the list entirely.
+	if len(driverConfig.NetworkInterfaces) == 0 && d.config != nil &&
+		d.config.Network != nil {
+		driverConfig.NetworkInterfaces = d.config.Network.DefaultInterfaces
+	}
+
+	// validate any Firecracker network configuration the user may have provided
+	if len(driverConfig.NetworkInterfaces) > 0 {
+		if err := driverConfig.NetworkInterfaces.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("invalid network configuration: %v", err)
+		}
+	}
+
+	// no per-task jailer settings; configuration is global to the plugin
 	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
+	if len(driverConfig.NetworkInterfaces) > 0 {
+		d.logger.Debug("network configuration", "network", driverConfig.NetworkInterfaces)
+	}
 	handle := drivers.NewTaskHandle(taskHandleVersion)
 	handle.Config = cfg
 
@@ -380,10 +348,49 @@ func (d *HelloDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHan
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
-	echoCmd := fmt.Sprintf(`echo "%s"`, driverConfig.Greeting)
-	execCmd := &executor.ExecCommand{
-		Cmd:        d.config.Shell,
-		Args:       []string{"-c", echoCmd},
+	// build the command we will run under Nomad's executor.  the driver is
+	// expected to launch Firecracker via the jailer binary so that we get the
+	// additional namespace and privilege setup; the configuration has already
+	// been validated and defaulted earlier in SetConfig.
+	// the plugin config validation already guarantees the jailer block
+	// exists, but check once more to avoid nil dereference in tests or
+	// accidental invocations without prior SetConfig.
+	if d.config == nil || d.config.Jailer == nil {
+		pluginClient.Kill()
+		return nil, nil, errors.New("jailer configuration missing")
+	}
+
+	jConfig := d.config.Jailer
+	// build dynamic parameters based on Nomad task state
+	params := &jailer.BuildParams{}
+
+	// if the job requested a specific user, attempt to resolve it to
+	// numeric ids.  this is best-effort; failures are logged but do not
+	// prevent the task from starting because the plugin config may already
+	// specify uid/gid or root is acceptable.
+	if cfg.User != "" {
+		if uid, gid, err := lookupUserIDs(cfg.User); err != nil {
+			d.logger.Warn("failed to resolve task user for jailer", "user", cfg.User, "err", err)
+		} else {
+			params.UID = uid
+			params.GID = gid
+		}
+	}
+
+	// pass the network namespace path if one was provided by the
+	// driver network manager
+	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" {
+		params.NetNS = cfg.NetworkIsolation.Path
+	}
+
+	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params)
+	if err != nil {
+		pluginClient.Kill()
+		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
+	}
+	execCmd = &executor.ExecCommand{
+		Cmd:        jConfig.Bin(),
+		Args:       jArgs,
 		StdoutPath: cfg.StdoutPath,
 		StderrPath: cfg.StderrPath,
 	}
@@ -438,6 +445,20 @@ func (d *HelloDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	var driverConfig TaskConfig
 	if err := taskState.TaskConfig.DecodeDriverConfig(&driverConfig); err != nil {
 		return fmt.Errorf("failed to decode driver config: %v", err)
+	}
+
+	// merge defaults when recovering as well; the recovered `driverConfig`
+	// reflects the originally-decoded task config, which may not include any
+	// network settings.  we mirror the same inheritance logic used during
+	// StartTask.
+	if len(driverConfig.NetworkInterfaces) == 0 && d.config != nil &&
+		d.config.Network != nil {
+		driverConfig.NetworkInterfaces = d.config.Network.DefaultInterfaces
+	}
+	if len(driverConfig.NetworkInterfaces) > 0 {
+		if err := driverConfig.NetworkInterfaces.validate(nil); err != nil {
+			return fmt.Errorf("invalid network configuration on recover: %v", err)
+		}
 	}
 
 	// TODO: implement driver specific logic to recover a task.

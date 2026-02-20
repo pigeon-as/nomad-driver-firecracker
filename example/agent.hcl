@@ -3,8 +3,11 @@
 
 log_level = "TRACE"
 
-plugin "hello-driver" {
+plugin "firecracker" {
   config {
-    shell = "bash"
+    jailer {
+      exec_file     = "/usr/local/bin/firecracker"
+      jailer_binary = "/usr/local/bin/jailer"
+    }
   }
 }
