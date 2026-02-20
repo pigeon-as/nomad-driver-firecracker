@@ -72,8 +72,8 @@ func (ipConf IPConfiguration) validate() error {
 		return fmt.Errorf("ip_addr is required")
 	}
 	// Parse and validate CIDR notation
-	_, ipNet, err := net.ParseCIDR(ipConf.IPAddr)
-	if err != nil || ipNet.IP.To4() == nil {
+	ip, _, err := net.ParseCIDR(ipConf.IPAddr)
+	if err != nil || ip.To4() == nil {
 		return fmt.Errorf("invalid ip_addr, must be valid IPv4 CIDR notation (e.g., 192.168.1.10/24): %s", ipConf.IPAddr)
 	}
 

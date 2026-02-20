@@ -277,7 +277,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	if handle == nil {
-		return errors.New("error: handle cannot be nil")
+		return errors.New("handle cannot be nil")
 	}
 
 	if _, ok := d.tasks.Get(handle.Config.ID); ok {
@@ -333,9 +333,12 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		if err != nil {
 			return fmt.Errorf("recovered VM failed health check at socket %s: %v", h.socketPath, err)
 		}
-	if info != nil {
-		d.logger.Debug("recovered VM is responsive", "task_id", h.taskConfig.ID)
+		if info != nil {
+			d.logger.Debug("recovered VM is responsive", "task_id", h.taskConfig.ID)
+		}
 	}
+
+	d.tasks.Set(taskState.TaskConfig.ID, h)
 
 	go h.run()
 	return nil
@@ -544,6 +547,14 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		if memPath == "" || snapPath == "" {
 			d.logger.Warn("cannot resume: no snapshot available", "task_id", taskID)
 			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
+		}
+
+		// Verify VM is still accessible before attempting resume
+		// Note: Firecracker Resume() only works on paused VMs within the same process lifecycle
+		// If the VM process was killed or agent restarted, resume will fail
+		if _, err := c.GetInstanceInfo(ctx); err != nil {
+			d.logger.Warn("cannot resume: VM not accessible", "task_id", taskID, "err", err)
+			return fmt.Errorf("VM not accessible for resume (may have been terminated): %v", err)
 		}
 
 		if err := c.Resume(ctx); err != nil {
