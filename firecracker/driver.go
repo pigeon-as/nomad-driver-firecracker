@@ -21,6 +21,7 @@ import (
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/logs"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
 )
@@ -274,6 +275,18 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	handle := drivers.NewTaskHandle(taskHandleVersion)
 	handle.Config = cfg
 
+	// Setup logging: creates allocDir/alloc/logs/ and opens stderr.0
+	logging, err := logs.SetupLogging(cfg.AllocDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to setup logging: %w", err)
+	}
+	defer func() {
+		// If we encounter an error after this point, cleanup logging
+		if err != nil {
+			logs.Cleanup(logging)
+		}
+	}()
+
 	// TODO: implement driver specific mechanism to start the task.
 	//
 	// Once the task is started you will need to store any relevant runtime
@@ -336,7 +349,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// let the jailer builder handle appending firecracker arguments for us
-	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath)
+	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath, "--log-path", logging.StderrPath)
 	if err != nil {
 		pluginClient.Kill()
 		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
@@ -364,6 +377,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
 		socketPath:   filepath.Join(cfg.TaskDir().Dir, "jailer/root/run/firecracker.socket"),
+		logFile:      logging.StderrFile,
 	}
 
 	driverState := TaskState{
@@ -595,6 +609,15 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
 	if err := os.Remove(snapshotDir); err != nil && !os.IsNotExist(err) {
 		d.logger.Debug("snapshot directory not empty or already removed", "path", snapshotDir)
+	}
+
+	// Cleanup logging
+	if handle.logFile != nil {
+		logs.Cleanup(&logs.Logging{
+			StderrFile:   handle.logFile,
+			TempFifoPath: filepath.Join(handle.taskConfig.AllocDir, "logs.fifo"),
+			StderrPath:   filepath.Join(handle.taskConfig.AllocDir, "alloc", "logs", "stderr.0"),
+		})
 	}
 
 	d.tasks.Delete(taskID)
