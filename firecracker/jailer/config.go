@@ -37,6 +37,7 @@ func HCLSpec() *hclspec.Spec {
 }
 
 type BuildParams struct {
+	ID            string
 	UID           *int
 	GID           *int
 	NetNS         string

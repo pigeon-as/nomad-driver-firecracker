@@ -22,6 +22,9 @@ func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams, fcArgs ..
 		WithChrootBaseDir(chroot)
 
 	if params != nil {
+		if params.ID != "" {
+			builder = builder.WithID(params.ID)
+		}
 		if params.UID != nil {
 			builder = builder.WithUID(*params.UID)
 		}

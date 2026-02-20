@@ -214,7 +214,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	jConfig := d.config.Jailer
-	params := &jailer.BuildParams{}
+	params := &jailer.BuildParams{
+		ID: cfg.ID,
+	}
 
 	if cfg.User != "" {
 		if uid, gid, err := jailer.ResolveUserIDs(cfg.User); err != nil {
@@ -255,7 +257,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
-		socketPath:   filepath.Join(cfg.TaskDir().Dir, "jailer/root/run/firecracker.socket"),
+		socketPath:   filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID, "root", "run", "firecracker.socket"),
 	}
 
 	driverState := TaskState{
@@ -388,14 +390,16 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	if handle.socketPath != "" {
+	// Attempt graceful shutdown via Ctrl+Alt+Del for SIGTERM/SIGINT
+	if (signal == "SIGTERM" || signal == "SIGINT") && handle.socketPath != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
 		c := client.New(handle.socketPath)
 		if err := c.SendCtrlAltDel(ctx); err != nil {
-			d.logger.Warn("graceful shutdown failed, will force kill", "err", err)
+			d.logger.Warn("graceful shutdown failed, will force kill", "signal", signal, "err", err)
 		} else {
+			d.logger.Info("graceful shutdown initiated via Ctrl+Alt+Del", "task_id", taskID)
 			return nil
 		}
 	}
@@ -524,8 +528,14 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
 			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
 			if resumeErr := c.Resume(ctx); resumeErr != nil {
-				d.logger.Error("resume failed after snapshot error", "task_id", taskID, "snapshot_err", err, "resume_err", resumeErr)
-				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v)", err, resumeErr)
+				d.logger.Error(
+					"resume failed after snapshot error; VM may remain paused and require manual recovery",
+					"task_id", taskID,
+					"snapshot_err", err,
+					"resume_err", resumeErr,
+					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
+				)
+				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
 			}
 			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
 		}

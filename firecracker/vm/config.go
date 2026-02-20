@@ -13,7 +13,6 @@ type Config struct {
 	BootSource        *boot.BootSource
 	Drives            []drive.Drive
 	NetworkInterfaces network.NetworkInterfaces
-	Resources         interface{}
 }
 
 func (c *Config) Validate() error {

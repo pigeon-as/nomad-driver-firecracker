@@ -74,21 +74,6 @@ func (c *Client) CreateSnapshot(ctx context.Context, memPath, snapPath string) e
 	return err
 }
 
-func (c *Client) SendSignal(ctx context.Context, signal string) error {
-	if c == nil || c.client == nil {
-		return errors.New("client is not initialized")
-	}
-
-	switch signal {
-	case "SIGTERM", "SIGINT":
-		return c.SendCtrlAltDel(ctx)
-	case "SIGKILL":
-		return errors.New("SIGKILL not supported via HTTP API; use StopTask for force kill")
-	default:
-		return errors.New("signal not supported via Firecracker HTTP API: " + signal)
-	}
-}
-
 func strPtr(s string) *string {
 	return &s
 }
