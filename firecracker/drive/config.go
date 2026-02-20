@@ -26,7 +26,11 @@ func (d *Drive) Validate() error {
 }
 
 func HCLSpec() *hclspec.Spec {
-	return hclspec.NewBlock("drive", false, hclspec.NewObject(nil))
+	return hclspec.NewBlock("drive", false, hclspec.NewObject(map[string]*hclspec.Spec{
+		"path_on_host":   hclspec.NewAttr("path_on_host", "string", true),
+		"is_root_device": hclspec.NewAttr("is_root_device", "bool", false),
+		"is_read_only":   hclspec.NewAttr("is_read_only", "bool", false),
+	}))
 }
 
 func (d *Drive) ToSDK(id string) *models.Drive {

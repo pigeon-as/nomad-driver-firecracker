@@ -18,7 +18,21 @@ func (c *Config) Validate() error {
 }
 
 func HCLSpec() *hclspec.Spec {
-	return hclspec.NewObject(map[string]*hclspec.Spec{})
+	return hclspec.NewObject(map[string]*hclspec.Spec{
+		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
+			"allow_mmds": hclspec.NewAttr("allow_mmds", "bool", false),
+			"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
+				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
+				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
+				"ip_configuration": hclspec.NewBlock("ip_configuration", false, hclspec.NewObject(map[string]*hclspec.Spec{
+					"ip_addr":     hclspec.NewAttr("ip_addr", "string", true),
+					"gateway":     hclspec.NewAttr("gateway", "string", true),
+					"nameservers": hclspec.NewAttr("nameservers", "list(string)", false),
+					"if_name":     hclspec.NewAttr("if_name", "string", false),
+				})),
+			})),
+		})),
+	})
 }
 
 type NetworkInterfaces []NetworkInterface
@@ -49,19 +63,31 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 }
 
 type IPConfiguration struct {
-	IPAddr      net.IPNet `codec:"ip_addr"`
-	Gateway     net.IP    `codec:"gateway"`
-	Nameservers []string  `codec:"nameservers"`
-	IfName      string    `codec:"if_name"`
+	IPAddr      string   `codec:"ip_addr"` // String format: "192.168.1.10/24"
+	Gateway     string   `codec:"gateway"` // String format: "192.168.1.1"
+	Nameservers []string `codec:"nameservers"`
+	IfName      string   `codec:"if_name"`
 }
 
 func (ipConf IPConfiguration) validate() error {
-	if ipConf.IPAddr.IP == nil || ipConf.IPAddr.IP.To4() == nil {
-		return fmt.Errorf("invalid ip_addr, only ipv4 addresses are supported: %+v", ipConf.IPAddr)
+	if ipConf.IPAddr == "" {
+		return fmt.Errorf("ip_addr is required")
 	}
-	if ipConf.Gateway == nil || ipConf.Gateway.To4() == nil {
-		return fmt.Errorf("invalid gateway, only ipv4 addresses are supported: %+v", ipConf.Gateway)
+	// Parse and validate CIDR notation
+	_, ipNet, err := net.ParseCIDR(ipConf.IPAddr)
+	if err != nil || ipNet.IP.To4() == nil {
+		return fmt.Errorf("invalid ip_addr, must be valid IPv4 CIDR notation (e.g., 192.168.1.10/24): %s", ipConf.IPAddr)
 	}
+
+	if ipConf.Gateway == "" {
+		return fmt.Errorf("gateway is required")
+	}
+	// Parse and validate gateway IP
+	gwIP := net.ParseIP(ipConf.Gateway)
+	if gwIP == nil || gwIP.To4() == nil {
+		return fmt.Errorf("invalid gateway, must be valid IPv4 address (e.g., 192.168.1.1): %s", ipConf.Gateway)
+	}
+
 	if len(ipConf.Nameservers) > 2 {
 		return fmt.Errorf("cannot specify more than 2 nameservers: %+v", ipConf.Nameservers)
 	}

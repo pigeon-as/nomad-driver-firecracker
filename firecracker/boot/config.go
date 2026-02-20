@@ -26,7 +26,11 @@ func (b *BootSource) Validate() error {
 }
 
 func HCLSpec() *hclspec.Spec {
-	return hclspec.NewBlock("boot_source", false, hclspec.NewObject(nil))
+	return hclspec.NewBlock("boot_source", false, hclspec.NewObject(map[string]*hclspec.Spec{
+		"kernel_image_path": hclspec.NewAttr("kernel_image_path", "string", true),
+		"boot_args":         hclspec.NewAttr("boot_args", "string", false),
+		"initrd_path":       hclspec.NewAttr("initrd_path", "string", false),
+	}))
 }
 
 func (b *BootSource) ToSDK() *models.BootSource {
