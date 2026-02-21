@@ -164,178 +164,66 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
-// isAllowedImagePath checks if a path is under the allocation directory or
-// within the configured allowlist of image paths. This prevents tenants from
-// specifying arbitrary host paths.
-// Note: Symlink resolution is performed separately just before hard linking
-// to prevent TOCTOU (Time-of-check-time-of-use) vulnerabilities.
-func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool {
-	if !filepath.IsAbs(imagePath) {
-		imagePath = filepath.Join(allocDir, imagePath)
-	}
 
-	isParent := func(parent, path string) bool {
-		rel, err := filepath.Rel(parent, path)
-		return err == nil && !strings.HasPrefix(rel, "..")
-	}
-
-	// Check if path is under alloc dir
-	if isParent(allocDir, imagePath) {
-		return true
-	}
-
-	// Check allowed paths
-	for _, ap := range allowedPaths {
-		if isParent(ap, imagePath) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// resolveAndValidateGuestFile validates, converts, and resolves a single guest file path.
-// Handles: relative→absolute conversion, symlink resolution, and re-validation against allowed paths.
-// Returns resolved path for use in LinkGuestFilesRequest, or error if validation fails.
-func (d *FirecrackerDriverPlugin) resolveAndValidateGuestFile(path, fieldName string, allocDir string) (string, error) {
-	if path == "" {
-		return "", nil
-	}
-
-	// Convert relative→absolute
-	absPath := path
-	if !filepath.IsAbs(absPath) {
-		absPath = filepath.Join(allocDir, absPath)
-	}
-
-	// Validate against allowed paths (catches obvious violations early)
-	if !isAllowedImagePath(d.config.ImagePaths, allocDir, absPath) {
-		return "", fmt.Errorf("%s %q is not in allowed paths", fieldName, path)
-	}
-
-	// Resolve symlinks (TOCTOU defense: deferred until just before linking)
-	resolved, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve %s symlink: %w", fieldName, err)
-	}
-
-	// Re-validate resolved target (symlink escape prevention)
-	if !isAllowedImagePath(d.config.ImagePaths, allocDir, resolved) {
-		return "", fmt.Errorf("%s symlink target %q is not in allowed paths", fieldName, resolved)
-	}
-
-	return resolved, nil
-}
-
-// prepareGuestFiles links guest files (kernel, initrd, drives) into the jailer chroot
-// and updates the task config with relative paths for use in the VM config.
-// This follows the official Firecracker pattern: files must be hard-linked into the
-// chroot because the jailed Firecracker process cannot access host paths.
+// prepareGuestFiles orchestrates guest file preparation by delegating to the jailer package.
+// The jailer package handles all path validation, symlink resolution, and file linking.
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
-	// Validate plugin config is initialized
 	if d.config == nil {
-		return errors.New("plugin configuration not initialized; SetConfig must be called before StartTask")
+		return fmt.Errorf("driver configuration not initialized")
 	}
 
-		jailerRootDir := filepath.Dir(configPath)
+	jailerRootDir := filepath.Dir(configPath)
 
-		req := &jailer.LinkGuestFilesRequest{}
-		resolvedPaths := make(map[string]string) // Maps original → resolved paths
+	guestCfg := &jailer.GuestFileConfig{
+		Kernel: cfg.BootSource.KernelImagePath,
+		Initrd: cfg.BootSource.InitrdPath,
+	}
 
-		// Process kernel and initrd
-		if cfg.BootSource != nil {
-			if cfg.BootSource.KernelImagePath != "" {
-				absPath := cfg.BootSource.KernelImagePath
-				if !filepath.IsAbs(absPath) {
-					absPath = filepath.Join(allocDir, absPath)
-				}
-				resolved, err := d.resolveAndValidateGuestFile(absPath, "kernel_image_path", allocDir)
-				if err != nil {
-					return err
-				}
-				resolvedPaths[cfg.BootSource.KernelImagePath] = resolved
-				req.KernelImagePath = resolved
-			}
-			if cfg.BootSource.InitrdPath != "" {
-				absPath := cfg.BootSource.InitrdPath
-				if !filepath.IsAbs(absPath) {
-					absPath = filepath.Join(allocDir, absPath)
-				}
-				resolved, err := d.resolveAndValidateGuestFile(absPath, "initrd_path", allocDir)
-				if err != nil {
-					return err
-				}
-				resolvedPaths[cfg.BootSource.InitrdPath] = resolved
-				req.InitrdPath = resolved
-			}
-		}
-
-		// Process drives
-		if len(cfg.Drives) > 0 {
-			req.DrivePaths = make([]string, len(cfg.Drives))
-			for i, drive := range cfg.Drives {
-				if drive.PathOnHost != "" {
-					absPath := drive.PathOnHost
-					if !filepath.IsAbs(absPath) {
-						absPath = filepath.Join(allocDir, absPath)
-					}
-					resolved, err := d.resolveAndValidateGuestFile(absPath, fmt.Sprintf("drive[%d].path_on_host", i), allocDir)
-					if err != nil {
-						return err
-					}
-					resolvedPaths[drive.PathOnHost] = resolved
-					req.DrivePaths[i] = resolved
-				}
-			}
-		}
-
-		// Link files into chroot and get relative paths
-		linkedPaths, err := jailer.LinkGuestFilesForTask(jailerRootDir, req)
-		if err != nil {
-			return fmt.Errorf("failed to link guest files into jailer chroot: %w", err)
-		}
-
-		// Update config with relative paths
-		if cfg.BootSource != nil {
-			if cfg.BootSource.KernelImagePath != "" {
-				resolved := resolvedPaths[cfg.BootSource.KernelImagePath]
-				if resolved == "" {
-					resolved = cfg.BootSource.KernelImagePath
-				}
-				if relativeName, ok := linkedPaths[resolved]; ok {
-					cfg.BootSource.KernelImagePath = relativeName
-				}
-			}
-			if cfg.BootSource.InitrdPath != "" {
-				resolved := resolvedPaths[cfg.BootSource.InitrdPath]
-				if resolved == "" {
-					resolved = cfg.BootSource.InitrdPath
-				}
-				if relativeName, ok := linkedPaths[resolved]; ok {
-					cfg.BootSource.InitrdPath = relativeName
-				}
-			}
-		}
-
+	if len(cfg.Drives) > 0 {
+		guestCfg.Drives = make([]string, len(cfg.Drives))
 		for i, drive := range cfg.Drives {
-			if drive.PathOnHost != "" {
-				resolved := resolvedPaths[drive.PathOnHost]
-				if resolved == "" {
-					resolved = drive.PathOnHost
-				}
-				if relativeName, ok := linkedPaths[resolved]; ok {
-					cfg.Drives[i].PathOnHost = relativeName
-				}
+			guestCfg.Drives[i] = drive.PathOnHost
+		}
 	}
 
-	var driverConfig TaskConfig
-	if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
+	params := &jailer.PrepareGuestFilesParams{
+		Config:       guestCfg,
+		AllocDir:     allocDir,
+		AllowedPaths: d.config.ImagePaths,
+		ChrootPath:   jailerRootDir,
 	}
 
-	if err := driverConfig.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
+	if err := jailer.PrepareGuestFiles(params); err != nil {
+		return err
 	}
+
+	// Update cfg with relative paths from jailer
+	cfg.BootSource.KernelImagePath = guestCfg.Kernel
+	cfg.BootSource.InitrdPath = guestCfg.Initrd
+	for i, drive := range cfg.Drives {
+		cfg.Drives[i].PathOnHost = guestCfg.Drives[i]
+	}
+
+	d.logger.Debug("guest files linked into jailer chroot")
+	return nil
+}
+
+func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
+		if _, ok := d.tasks.Get(cfg.ID); ok {
+			return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
+		}
+
+		var handle *drivers.TaskHandle
+		var err error
+
+		var driverConfig TaskConfig
+		if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
+			return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
+		}
+
+		if err := driverConfig.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
+		}
 
 	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.ID)
 	if err != nil {
