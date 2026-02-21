@@ -186,11 +186,11 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
-	jsonData, err := vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
+	_, err := vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
-	d.logger.Debug("generated vm configuration", "path", configPath, "json", string(jsonData))
+	d.logger.Debug("generated vm configuration", "path", configPath)
 
 	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
 	if len(driverConfig.NetworkInterfaces) > 0 {
@@ -211,6 +211,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	if d.config == nil || d.config.Jailer == nil {
 		pluginClient.Kill()
+		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
+			d.logger.Error("failed to shutdown executor after missing jailer config", "error", shutdownErr)
+		}
 		return nil, nil, errors.New("jailer configuration missing")
 	}
 
@@ -235,6 +238,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath, "--log-path", cfg.StderrPath)
 	if err != nil {
 		pluginClient.Kill()
+		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
+			d.logger.Error("failed to shutdown executor after invalid jailer configuration", "error", shutdownErr)
+		}
 		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
 	}
 	execCmd := &executor.ExecCommand{
@@ -247,6 +253,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	ps, err := exec.Launch(execCmd)
 	if err != nil {
 		pluginClient.Kill()
+		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
+			d.logger.Error("failed to shutdown executor after launch failure", "error", shutdownErr)
+		}
 		return nil, nil, fmt.Errorf("failed to launch command with executor: %v", err)
 	}
 
@@ -378,14 +387,13 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		}
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-d.ctx.Done():
-			return
-		case ch <- result:
-		}
+	select {
+	case <-ctx.Done():
+		return
+	case <-d.ctx.Done():
+		return
+	case ch <- result:
+		return
 	}
 }
 
