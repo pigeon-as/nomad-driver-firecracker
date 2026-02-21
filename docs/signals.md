@@ -3,30 +3,24 @@
 Supported signals via `nomad alloc signal`:
 
 ## SIGTERM / SIGINT
-Graceful shutdown. Sends Ctrl+Alt+Del to VM, allowing clean shutdown.
+
+Graceful shutdown. Sends Ctrl+Alt+Del to the guest VM via the Firecracker API, allowing the guest OS to perform clean shutdown.
+
 ```bash
 nomad alloc signal -s SIGTERM <alloc>
+nomad alloc signal -s SIGINT <alloc>
 ```
 
-## SIGSTOP
-Suspend VM with snapshot. Pauses VM and writes complete state (memory, CPU, I/O) to disk.
-Snapshot lives only during task execution and is cleaned up on task destruction.
+**Behavior:**
+- Firecracker HTTP API sends Ctrl+Alt+Del to guest
+- Guest OS receives interrupt (typically triggers shutdown sequence)
+- Driver waits up to StopTimeout for graceful exit
+- If timeout expires, forcefully terminates Firecracker process
 
-See [VM Snapshots](snapshots.md) for details on suspend/resume performance, limitations, and best practices.
+## Other Signals
 
-```bash
-nomad alloc signal -s SIGSTOP <alloc>
-```
-
-## SIGCONT
-Resume paused VM from snapshot. Attempts to resume a VM that was previously suspended with SIGSTOP. 
-Resumes from in-memory paused state in hundreds of milliseconds.
-
-See [VM Snapshots](snapshots.md) for network connection recovery patterns and troubleshooting.
-
-```bash
-nomad alloc signal -s SIGCONT <alloc>
-```
+Other signals (SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, etc.) are forwarded to the Firecracker VMM process. These signals are not specifically handled by the driver and may result in process termination or restart behavior depending on the signal.
 
 ## SIGKILL
+
 Not supported via HTTP API. Use `nomad alloc stop -no-shutdown <alloc>` for force-kill.

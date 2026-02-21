@@ -4,10 +4,9 @@ A Nomad task driver plugin for running Firecracker microVMs.
 
 ## Features
 
-- Signal handling (SIGTERM, SIGSTOP, SIGCONT)
+- Signal handling (SIGTERM, SIGINT)
 - Task recovery after agent restart
 - Automatic log capture (daemon + guest console)
-- Snapshot-based suspend/resume
 - Resource stats
 
 ## Requirements
@@ -84,7 +83,6 @@ See [example job](example/example.nomad) for complete configuration.
 ## Documentation
 
 - [Task Lifecycle](docs/task-lifecycle.md) - Start, stop, and recovery behavior
-- [Signal Handling](docs/signals.md) - SIGTERM, SIGSTOP, SIGCONT usage
-- [VM Snapshots](docs/snapshots.md) - Suspend/resume with snapshot-based state persistence
+- [Signal Handling](docs/signals.md) - Signal forwarding and graceful shutdown
 - [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
 - [Logging](docs/logs.md) - Daemon logs and guest console output

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -21,8 +20,8 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
+	"	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer""
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
 )
@@ -51,7 +50,6 @@ type TaskState struct {
 	TaskConfig     *drivers.TaskConfig
 	StartedAt      time.Time
 	Pid            int
-	SocketPath     string
 }
 
 type FirecrackerDriverPlugin struct {
@@ -76,6 +74,12 @@ func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
 		signalShutdown: cancel,
 		logger:         logger,
 	}
+}
+
+// deriveSocketPath computes the Firecracker socket path from task directory and ID.
+// The path is deterministic and can be derived from task config during recovery.
+func deriveSocketPath(taskDir, taskID string) string {
+	return filepath.Join(taskDir, "jailer", taskID, "root", "run", "firecracker.socket")
 }
 
 func (d *FirecrackerDriverPlugin) PluginInfo() (*base.PluginInfoResponse, error) {
@@ -277,7 +281,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
-		socketPath:   filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID, "root", "run", "firecracker.socket"),
+		socketPath:   deriveSocketPath(cfg.TaskDir().Dir, cfg.ID),
 	}
 
 	driverState := TaskState{
@@ -285,7 +289,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		Pid:            ps.Pid,
 		TaskConfig:     cfg,
 		StartedAt:      h.startedAt,
-		SocketPath:     h.socketPath,
 	}
 
 	if err = handle.SetDriverState(&driverState); err != nil {
@@ -335,24 +338,8 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		procState:    drivers.TaskStateRunning,
 		startedAt:    taskState.StartedAt,
 		exitResult:   &drivers.ExitResult{},
-		socketPath:   taskState.SocketPath,
 		logger:       d.logger,
-		// Snapshot paths are deterministically derived from taskID and allocDir,
-		// not persisted in state. Initialized empty; populated when snapshots are created.
-	}
-
-	if h.socketPath != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		c := client.New(h.socketPath)
-		info, err := c.GetInstanceInfo(ctx)
-		if err != nil {
-			return fmt.Errorf("recovered VM failed health check at socket %s: %v", h.socketPath, err)
-		}
-		if info != nil {
-			d.logger.Debug("recovered VM is responsive", "task_id", h.taskConfig.ID)
-		}
+		socketPath:   deriveSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID),
 	}
 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
@@ -404,105 +391,6 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Handle SIGSTOP (pause and snapshot for later resume)
-	if signal == "SIGSTOP" && handle.socketPath != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		c := client.New(handle.socketPath)
-
-		if err := c.Pause(ctx); err != nil {
-			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
-			return fmt.Errorf("pause failed: %v", err)
-		}
-
-		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshots", taskID)
-		if err := os.MkdirAll(snapshotDir, 0700); err != nil {
-			d.logger.Warn("failed to create snapshot directory, attempting to resume", "task_id", taskID, "err", err)
-			if resumeErr := c.Resume(ctx); resumeErr != nil {
-				d.logger.Error(
-					"resume failed after snapshot directory creation error; VM may remain paused and require manual recovery",
-					"task_id", taskID,
-					"snapshot_dir_err", err,
-					"resume_err", resumeErr,
-					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
-				)
-				return fmt.Errorf("snapshot dir creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
-			}
-			return fmt.Errorf("snapshot dir creation failed, VM resumed without snapshot: %v", err)
-		}
-
-		memPath := filepath.Join(snapshotDir, "memory.img")
-		snapPath := filepath.Join(snapshotDir, "state.vmstate")
-
-		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
-			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
-			if resumeErr := c.Resume(ctx); resumeErr != nil {
-				d.logger.Error(
-					"resume failed after snapshot error; VM may remain paused and require manual recovery",
-					"task_id", taskID,
-					"snapshot_err", err,
-					"resume_err", resumeErr,
-					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
-				)
-				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
-			}
-			if rmErr := os.RemoveAll(snapshotDir); rmErr != nil {
-				d.logger.Warn("failed to clean up snapshot directory after snapshot error", "task_id", taskID, "dir", snapshotDir, "err", rmErr)
-			}
-			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
-		}
-
-		handle.stateLock.Lock()
-		handle.snapshotMemPath = memPath
-		handle.snapshotPath = snapPath
-		handle.stateLock.Unlock()
-
-		d.logger.Info("VM suspended with snapshot", "task_id", taskID)
-		return nil
-	}
-
-	// Attempt graceful shutdown via Ctrl+Alt+Del for SIGTERM/SIGINT
-	if (signal == "SIGTERM" || signal == "SIGINT") && handle.socketPath != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		c := client.New(handle.socketPath)
-		if err := c.SendCtrlAltDel(ctx); err != nil {
-			d.logger.Warn("graceful shutdown via Ctrl+Alt+Del failed, will force kill", "signal", signal, "err", err)
-		} else {
-			d.logger.Info("graceful shutdown initiated via Ctrl+Alt+Del", "task_id", taskID)
-			// Wait up to timeout for process to exit after Ctrl+Alt+Del
-			exitChan := make(chan struct{})
-			var once sync.Once
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						// Stop polling when timeout expires to prevent goroutine leak
-						return
-					default:
-						if handle.pluginClient.Exited() {
-							// Use sync.Once to ensure exitChan is only closed once, preventing
-							// a race condition where both the goroutine and ctx.Done() try to close it
-							once.Do(func() { close(exitChan) })
-							return
-						}
-						time.Sleep(100 * time.Millisecond)
-					}
-				}
-			}()
-
-			select {
-			case <-exitChan:
-				d.logger.Info("VM shut down gracefully after Ctrl+Alt+Del", "task_id", taskID)
-				return nil
-			case <-ctx.Done():
-				d.logger.Warn("VM did not shut down within timeout; falling back to force kill", "task_id", taskID, "timeout", timeout)
-			}
-		}
-	}
-
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
@@ -523,44 +411,12 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		return errors.New("cannot destroy running task")
 	}
 
-	if handle.IsRunning() && force {
-		if handle.socketPath != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-
-			c := client.New(handle.socketPath)
-			if err := c.SendCtrlAltDel(ctx); err != nil {
-				d.logger.Debug("graceful shutdown during destroy failed, will force kill", "err", err)
-			}
-		}
-	}
-
 	if !handle.pluginClient.Exited() {
 		if err := handle.exec.Shutdown("", 0); err != nil {
-			handle.logger.Error("force shutdown failed", "err", err)
+			handle.logger.Error("destroying executor failed", "err", err)
 		}
+
 		handle.pluginClient.Kill()
-	}
-
-	handle.stateLock.RLock()
-	memPath := handle.snapshotMemPath
-	snapPath := handle.snapshotPath
-	handle.stateLock.RUnlock()
-
-	if memPath != "" {
-		if err := os.Remove(memPath); err != nil && !os.IsNotExist(err) {
-			d.logger.Warn("failed to remove snapshot memory file", "path", memPath, "err", err)
-		}
-	}
-	if snapPath != "" {
-		if err := os.Remove(snapPath); err != nil && !os.IsNotExist(err) {
-			d.logger.Warn("failed to remove snapshot state file", "path", snapPath, "err", err)
-		}
-	}
-
-	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshots", taskID)
-	if err := os.RemoveAll(snapshotDir); err != nil && !os.IsNotExist(err) {
-		d.logger.Debug("snapshot directory clean up failed", "path", snapshotDir, "err", err)
 	}
 
 	d.tasks.Delete(taskID)
@@ -589,54 +445,17 @@ func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drive
 	return d.eventer.TaskEvents(ctx)
 }
 
+// SignalTask forwards a signal to the Firecracker VMM process.
+// SIGTERM and SIGINT trigger graceful VM shutdown via Ctrl+Alt+Del if available,
+// otherwise the signal is forwarded to the executor process.
+// All other signals are forwarded to the Firecracker process.
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
-	if handle.socketPath == "" {
-		d.logger.Warn("cannot send signal: no socket path available", "task_id", taskID)
-		return errors.New("socket path not available")
-	}
-
-	c := client.New(handle.socketPath)
-
-	// SIGSTOP is handled in StopTask where timeout is provided.
-	// SignalTask handles only fire-and-forget signals.
-	switch signal {
-	case "SIGCONT":
-		handle.stateLock.RLock()
-		memPath := handle.snapshotMemPath
-		snapPath := handle.snapshotPath
-		handle.stateLock.RUnlock()
-
-		if memPath == "" || snapPath == "" {
-			d.logger.Warn("cannot resume: no snapshot available", "task_id", taskID)
-			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
-		}
-
-		// Fire-and-forget resume attempt with snapshot recovery fallback.
-		// Try resume first (normal pause/resume cycle).
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if _, err := c.GetInstanceInfo(ctx); err != nil {
-			d.logger.Warn("cannot resume: VM not accessible (may have been terminated or agent restarted)", "task_id", taskID, "err", err)
-			return fmt.Errorf("VM not accessible for resume: %w", err)
-		}
-
-		if err := c.Resume(ctx); err != nil {
-			d.logger.Warn("resume of paused VM failed; snapshot preserved on disk for manual recovery", "task_id", taskID, "err", err, "snapshot_mem", memPath, "snapshot_state", snapPath)
-			return fmt.Errorf("resume failed: %w", err)
-		}
-
-		d.logger.Info("VM resumed from paused state", "task_id", taskID)
-		return nil
-
-	default:
-		return fmt.Errorf("signal not supported in SignalTask: %s (use StopTask for SIGSTOP)", signal)
-	}
+	return handle.forwardSignal(context.Background(), signal, 30*time.Second)
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
