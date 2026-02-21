@@ -239,11 +239,16 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 	req := &jailer.LinkGuestFilesRequest{}
 
 	// Resolve symlinks immediately before linking to prevent TOCTOU attacks
+	// After resolution, re-validate the target against allowed paths to prevent escape attempts
 	if cfg.BootSource != nil {
 		if cfg.BootSource.KernelImagePath != "" {
 			resolvedKernel, err := filepath.EvalSymlinks(cfg.BootSource.KernelImagePath)
 			if err != nil {
 				return fmt.Errorf("failed to resolve kernel symlink: %w", err)
+			}
+			// Re-validate the resolved path against allowed boundaries
+			if !isAllowedImagePath(d.config.ImagePaths, allocDir, resolvedKernel) {
+				return fmt.Errorf("kernel_image_path symlink target %q is not in allowed paths", resolvedKernel)
 			}
 			req.KernelImagePath = resolvedKernel
 		}
@@ -251,6 +256,10 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 			resolvedInitrd, err := filepath.EvalSymlinks(cfg.BootSource.InitrdPath)
 			if err != nil {
 				return fmt.Errorf("failed to resolve initrd symlink: %w", err)
+			}
+			// Re-validate the resolved path against allowed boundaries
+			if !isAllowedImagePath(d.config.ImagePaths, allocDir, resolvedInitrd) {
+				return fmt.Errorf("initrd_path symlink target %q is not in allowed paths", resolvedInitrd)
 			}
 			req.InitrdPath = resolvedInitrd
 		}
@@ -263,6 +272,10 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 				resolvedDrive, err := filepath.EvalSymlinks(drive.PathOnHost)
 				if err != nil {
 					return fmt.Errorf("failed to resolve drive[%d] symlink: %w", i, err)
+				}
+				// Re-validate the resolved path against allowed boundaries
+				if !isAllowedImagePath(d.config.ImagePaths, allocDir, resolvedDrive) {
+					return fmt.Errorf("drive[%d].path_on_host symlink target %q is not in allowed paths", i, resolvedDrive)
 				}
 				req.DrivePaths[i] = resolvedDrive
 			}
