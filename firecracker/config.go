@@ -67,11 +67,8 @@ func (c *Config) Validate() error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("image_paths[%d]: path must be absolute, got %q", i, path)
 		}
-		// Normalize path (resolve . and ..)
-		norm := filepath.Clean(path)
-		if norm != path {
-			return fmt.Errorf("image_paths[%d]: path must be normalized, got %q (should be %q)", i, path, norm)
-		}
+		// Auto-normalize paths (resolve . and ..)
+		c.ImagePaths[i] = filepath.Clean(path)
 	}
 
 	return nil

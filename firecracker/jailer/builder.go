@@ -11,6 +11,9 @@ func (c *JailerConfig) BuildArgs(taskDir string, params *BuildParams, fcArgs ...
 	if c == nil {
 		return nil, errors.New("jailer config is nil")
 	}
+	if taskDir == "" {
+		return nil, errors.New("taskDir is empty")
+	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
