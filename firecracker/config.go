@@ -59,7 +59,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	// Validate ImagePaths: must be non-empty absolute paths
+	// Validate ImagePaths: must be non-empty absolute normalized paths
 	for i, path := range c.ImagePaths {
 		if path == "" {
 			return fmt.Errorf("image_paths[%d]: path cannot be empty", i)
@@ -67,8 +67,11 @@ func (c *Config) Validate() error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("image_paths[%d]: path must be absolute, got %q", i, path)
 		}
-		// Auto-normalize paths (resolve . and ..)
-		c.ImagePaths[i] = filepath.Clean(path)
+		// Validate path is already normalized
+		normalized := filepath.Clean(path)
+		if path != normalized {
+			return fmt.Errorf("image_paths[%d]: path must be normalized, got %q (should be %q)", i, path, normalized)
+		}
 	}
 
 	return nil

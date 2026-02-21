@@ -4,10 +4,13 @@
 package jailer
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
@@ -80,8 +83,39 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
+			if errors.Is(err, syscall.EXDEV) {
+				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
+					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
+				}
+				continue
+			}
 			return fmt.Errorf("failed to hard link %s -> %s: %w", sourcePath, targetPath, err)
 		}
+	}
+
+	return nil
+}
+
+func copyFile(sourcePath, targetPath string) error {
+	srcFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
 	}
 
 	return nil

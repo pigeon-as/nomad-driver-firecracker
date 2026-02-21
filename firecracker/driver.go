@@ -500,6 +500,7 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 }
 
 func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration, signal string) error {
+	start := time.Now()
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
@@ -533,8 +534,12 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 forceShutdown:
-	// Force shutdown with whatever timeout remains
-	if err := handle.exec.Shutdown(signal, timeout); err != nil {
+	// Force shutdown with remaining timeout
+	remaining := timeout - time.Since(start)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if err := handle.exec.Shutdown(signal, remaining); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
 		}
