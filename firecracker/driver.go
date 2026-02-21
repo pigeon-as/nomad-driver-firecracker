@@ -446,10 +446,12 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
+	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
+	// This matches QEMU pattern: try graceful shutdown, then let executor handle fallback
 	if signal == "SIGTERM" || signal == "SIGINT" {
-		if err := handle.forwardSignal(context.Background(), signal, timeout); err != nil {
-			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
-		}
+		// Non-blocking attempt at graceful shutdown; returns immediately
+		_ = handle.forwardSignal(context.Background(), signal, 5*time.Second)
+		// Fall through to executor shutdown with full timeout for enforcement
 	}
 
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {

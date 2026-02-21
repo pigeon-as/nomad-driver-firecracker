@@ -98,7 +98,7 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, timeo
 		if h.socketPath == "" {
 			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
 			c := client.New(h.socketPath)
