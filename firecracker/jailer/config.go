@@ -27,8 +27,14 @@ func (c *JailerConfig) Validate() error {
 
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
-		"exec_file":     hclspec.NewAttr("exec_file", "string", false),
-		"jailer_binary": hclspec.NewAttr("jailer_binary", "string", false),
+		"exec_file": hclspec.NewDefault(
+			hclspec.NewAttr("exec_file", "string", false),
+			hclspec.NewLiteral(`"firecracker"`),
+		),
+		"jailer_binary": hclspec.NewDefault(
+			hclspec.NewAttr("jailer_binary", "string", false),
+			hclspec.NewLiteral(`"jailer"`),
+		),
 	})
 }
 

@@ -1,4 +1,4 @@
-package boot
+package boot_source
 
 import (
 	"errors"

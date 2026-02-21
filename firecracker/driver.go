@@ -22,8 +22,8 @@ import (
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
 )
 
 const (
@@ -191,12 +191,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
 	logPathChroot := paths.LogPathChroot
-	vmCfg := &vm.Config{
+	vmCfg := &machine.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
-	_, err = vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
+	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
 		// Cleanup only vmconfig.json on failure; don't remove the config directory
 		// as it was created by BuildPaths and may be needed by the jailer

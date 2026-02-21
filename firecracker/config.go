@@ -7,50 +7,21 @@ import (
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
 )
 
 var (
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"jailer": hclspec.NewBlock("jailer", true, hclspec.NewObject(map[string]*hclspec.Spec{
-			"exec_file": hclspec.NewDefault(
-				hclspec.NewAttr("exec_file", "string", false),
-				hclspec.NewLiteral(`"firecracker"`),
-			),
-			"jailer_binary": hclspec.NewDefault(
-				hclspec.NewAttr("jailer_binary", "string", false),
-				hclspec.NewLiteral(`"jailer"`),
-			),
-		})),
-	})
-
-	rateLimiterSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"bandwidth": hclspec.NewBlock("bandwidth", false, hclspec.NewObject(map[string]*hclspec.Spec{
-			"refill_time":    hclspec.NewAttr("refill_time", "number", true),
-			"size":           hclspec.NewAttr("size", "number", true),
-			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
-		})),
-		"ops": hclspec.NewBlock("ops", false, hclspec.NewObject(map[string]*hclspec.Spec{
-			"refill_time":    hclspec.NewAttr("refill_time", "number", true),
-			"size":           hclspec.NewAttr("size", "number", true),
-			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
-		})),
+		"jailer": hclspec.NewBlock("jailer", true, jailer.HCLSpec()),
 	})
 
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"boot_source": boot.HCLSpec(),
-		"drive":       hclspec.NewBlockList("drive", drive.HCLSpec()),
-		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
-			"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
-				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
-				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
-			})),
-			"in_rate_limiter":  hclspec.NewBlock("in_rate_limiter", false, rateLimiterSpec),
-			"out_rate_limiter": hclspec.NewBlock("out_rate_limiter", false, rateLimiterSpec),
-		})),
+		"boot_source":       boot_source.HCLSpec(),
+		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
+		"network_interface": hclspec.NewBlockList("network_interface", network_interface.HCLSpec()),
 	})
 
 	capabilities = &drivers.Capabilities{
@@ -84,9 +55,9 @@ func (c *Config) Validate() error {
 }
 
 type TaskConfig struct {
-	BootSource        *boot.BootSource          `codec:"boot_source"`
-	Drives            []drive.Drive             `codec:"drive"`
-	NetworkInterfaces network.NetworkInterfaces `codec:"network_interface"`
+	BootSource        *boot_source.BootSource             `codec:"boot_source"`
+	Drives            []drive.Drive                       `codec:"drive"`
+	NetworkInterfaces network_interface.NetworkInterfaces `codec:"network_interface"`
 }
 
 func (c *TaskConfig) Validate() error {

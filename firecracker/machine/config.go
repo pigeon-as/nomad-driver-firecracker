@@ -1,18 +1,18 @@
-package vm
+package machine
 
 import (
 	"errors"
 	"fmt"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
 )
 
 type Config struct {
-	BootSource        *boot.BootSource
+	BootSource        *boot_source.BootSource
 	Drives            []drive.Drive
-	NetworkInterfaces network.NetworkInterfaces
+	NetworkInterfaces network_interface.NetworkInterfaces
 }
 
 func (c *Config) Validate() error {
