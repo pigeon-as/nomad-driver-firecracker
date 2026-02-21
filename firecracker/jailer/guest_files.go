@@ -35,8 +35,17 @@ func LinkFilesIntoJail(jailorRootPath string, requests []FileLinkRequest) (map[s
 	linkedPaths := make(map[string]string)
 
 	for _, req := range requests {
-		if req.SourcePath == "" || req.TargetName == "" {
-			continue
+		// Validate SourcePath is not empty
+		if req.SourcePath == "" {
+			return nil, fmt.Errorf("file link request has empty SourcePath")
+		}
+		// Validate TargetName is not empty
+		if req.TargetName == "" {
+			return nil, fmt.Errorf("file link request for source %q has empty TargetName", req.SourcePath)
+		}
+		// Validate TargetName is just a filename, not a path
+		if filepath.Base(req.TargetName) != req.TargetName {
+			return nil, fmt.Errorf("file link request for source %q has invalid TargetName %q (must be a filename, not a path)", req.SourcePath, req.TargetName)
 		}
 
 		// Verify source file exists and is readable

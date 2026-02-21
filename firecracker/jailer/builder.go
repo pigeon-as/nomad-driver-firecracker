@@ -7,7 +7,7 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 )
 
-func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams, fcArgs ...string) ([]string, error) {
+func (c *JailerConfig) BuildArgs(taskDir string, params *BuildParams, fcArgs ...string) ([]string, error) {
 	if c == nil {
 		return nil, errors.New("jailer config is nil")
 	}
@@ -15,7 +15,7 @@ func (c *JailerConfig) BuildArgs(allocDir string, params *BuildParams, fcArgs ..
 		return nil, err
 	}
 
-	chroot := filepath.Join(allocDir, "jailer")
+	chroot := filepath.Join(taskDir, "jailer")
 	builder := firecracker.NewJailerCommandBuilder().
 		WithBin(c.JailerBinary).
 		WithExecFile(c.ExecFile).
