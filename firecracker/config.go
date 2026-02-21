@@ -3,6 +3,7 @@ package firecracker
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
@@ -56,6 +57,21 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Jailer.Validate(); err != nil {
 		return err
+	}
+
+	// Validate ImagePaths: must be non-empty absolute paths
+	for i, path := range c.ImagePaths {
+		if path == "" {
+			return fmt.Errorf("image_paths[%d]: path cannot be empty", i)
+		}
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("image_paths[%d]: path must be absolute, got %q", i, path)
+		}
+		// Normalize path (resolve . and ..)
+		norm := filepath.Clean(path)
+		if norm != path {
+			return fmt.Errorf("image_paths[%d]: path must be normalized, got %q (should be %q)", i, path, norm)
+		}
 	}
 
 	return nil

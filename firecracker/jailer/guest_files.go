@@ -207,10 +207,19 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error)
 		return nil, fmt.Errorf("failed to link guest files: %w", err)
 	}
 
-	// Build result with relative basenames
+	// Build result with relative basenames - only call Base() when paths are non-empty
+	// (filepath.Base("") returns ".", which would incorrectly set InitrdPath=".")
+	var kernelBase, initrdBase string
+	if kernelPath != "" {
+		kernelBase = filepath.Base(kernelPath)
+	}
+	if initrdPath != "" {
+		initrdBase = filepath.Base(initrdPath)
+	}
+
 	paths := &GuestFilePaths{
-		Kernel: filepath.Base(kernelPath),
-		Initrd: filepath.Base(initrdPath),
+		Kernel: kernelBase,
+		Initrd: initrdBase,
 	}
 	if len(drivePaths) > 0 {
 		paths.Drives = make([]string, len(drivePaths))
