@@ -195,6 +195,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	_, err = vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
+		// Cleanup vmconfig.json and config directory on failure to avoid orphaned artifacts
+		_ = os.Remove(configPath)
+		_ = os.Remove(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
@@ -315,12 +318,6 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	var driverConfig TaskConfig
 	if err := taskState.TaskConfig.DecodeDriverConfig(&driverConfig); err != nil {
 		return fmt.Errorf("failed to decode driver config: %v", err)
-	}
-
-	if len(driverConfig.NetworkInterfaces) > 0 {
-		if err := driverConfig.NetworkInterfaces.Validate(); err != nil {
-			return fmt.Errorf("invalid network configuration on recover: %v", err)
-		}
 	}
 
 	plugRC, err := structs.ReattachConfigToGoPlugin(taskState.ReattachConfig)
@@ -472,11 +469,17 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			exitChan := make(chan struct{})
 			go func() {
 				for {
-					if handle.pluginClient.Exited() {
-						close(exitChan)
+					select {
+					case <-ctx.Done():
+						// Stop polling when timeout expires to prevent goroutine leak
 						return
+					default:
+						if handle.pluginClient.Exited() {
+							close(exitChan)
+							return
+						}
+						time.Sleep(100 * time.Millisecond)
 					}
-					time.Sleep(100 * time.Millisecond)
 				}
 			}()
 

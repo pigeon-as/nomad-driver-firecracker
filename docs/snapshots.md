@@ -10,7 +10,7 @@ When you send `SIGSTOP` to a task, the driver:
 
 1. Pauses the VM
 2. Creates a snapshot capturing memory and CPU state
-3. Stores snapshot files at `allocDir/snapshots/<task_id>/`
+3. Stores snapshot files at `allocDir/snapshot`
 4. Returns successfully
 
 If snapshot creation fails, the VM resumes and returns an error.
@@ -35,7 +35,7 @@ If resuming fails, the snapshot files remain on disk for troubleshooting.
 
 ## Storage and Lifecycle
 
-Snapshots are stored at `allocDir/snapshots/<task_id>/` and are cleaned up automatically when the task is destroyed. Snapshots are temporary and task-scoped only.
+Snapshots are stored at `allocDir/snapshot` and are cleaned up automatically when the task is destroyed. Snapshots are temporary and task-scoped only.
 
 ## Performance
 
@@ -49,7 +49,7 @@ Snapshots are stored at `allocDir/snapshots/<task_id>/` and are cleaned up autom
 - **Network connections** may become stale after resume. Applications should handle reconnection on failures (see Network Connections section).
 - **Root filesystem** is NOT reset on resume. Files written during suspend persist.
 - **Clock skew** may occur for a few seconds after resume until NTP syncs.
-- Snapshots require sufficient disk space in `allocDir/snapshots/`.
+- Snapshots require sufficient disk space in `allocDir/snapshot`.
 
 ## Network Connections After Resume
 
@@ -101,6 +101,6 @@ Look for:
 3. To recover: Send SIGTERM to destroy the task, then restart
 
 **Snapshot creation fails (SIGSTOP error):**
-1. Ensure sufficient disk space in `allocDir/snapshots/`
+1. Ensure sufficient disk space in `allocDir/snapshot`
 2. Check Nomad agent logs for API errors
 3. Verify Firecracker daemon is responsive
