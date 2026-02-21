@@ -410,6 +410,54 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
+	// Handle SIGSTOP (pause and snapshot for later resume)
+	if signal == "SIGSTOP" && handle.socketPath != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		c := client.New(handle.socketPath)
+
+		if err := c.Pause(ctx); err != nil {
+			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
+			return fmt.Errorf("pause failed: %v", err)
+		}
+
+		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
+		if err := os.MkdirAll(snapshotDir, 0755); err != nil {
+			d.logger.Warn("failed to create snapshot directory", "task_id", taskID, "err", err)
+			return fmt.Errorf("snapshot dir creation failed: %v", err)
+		}
+
+		memPath := filepath.Join(snapshotDir, "memory.img")
+		snapPath := filepath.Join(snapshotDir, "state.vmstate")
+
+		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
+			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
+			if resumeErr := c.Resume(ctx); resumeErr != nil {
+				d.logger.Error(
+					"resume failed after snapshot error; VM may remain paused and require manual recovery",
+					"task_id", taskID,
+					"snapshot_err", err,
+					"resume_err", resumeErr,
+					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
+				)
+				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
+			}
+			if rmErr := os.RemoveAll(snapshotDir); rmErr != nil {
+				d.logger.Warn("failed to clean up snapshot directory after snapshot error", "task_id", taskID, "dir", snapshotDir, "err", rmErr)
+			}
+			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
+		}
+
+		handle.stateLock.Lock()
+		handle.snapshotMemPath = memPath
+		handle.snapshotPath = snapPath
+		handle.stateLock.Unlock()
+
+		d.logger.Info("VM suspended with snapshot", "task_id", taskID)
+		return nil
+	}
+
 	// Attempt graceful shutdown via Ctrl+Alt+Del for SIGTERM/SIGINT
 	if (signal == "SIGTERM" || signal == "SIGINT") && handle.socketPath != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -523,61 +571,9 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 
 	c := client.New(handle.socketPath)
 
+	// SIGSTOP is handled in StopTask where timeout is provided.
+	// SignalTask handles only fire-and-forget signals.
 	switch signal {
-	case "SIGTERM", "SIGINT":
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return c.SendCtrlAltDel(ctx)
-
-	case "SIGSTOP":
-		// Pause operation needs adequate time to complete
-		pauseCtx, pauseCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer pauseCancel()
-
-		if err := c.Pause(pauseCtx); err != nil {
-			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
-			return fmt.Errorf("pause failed: %v", err)
-		}
-
-		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
-		if err := os.MkdirAll(snapshotDir, 0755); err != nil {
-			d.logger.Warn("failed to create snapshot directory", "task_id", taskID, "err", err)
-			return fmt.Errorf("snapshot dir creation failed: %v", err)
-		}
-
-		memPath := filepath.Join(snapshotDir, "memory.img")
-		snapPath := filepath.Join(snapshotDir, "state.vmstate")
-
-		// Snapshot creation can take considerable time, especially for large VMs
-		snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer snapshotCancel()
-
-		if err := c.CreateSnapshot(snapshotCtx, memPath, snapPath); err != nil {
-			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
-			if resumeErr := c.Resume(pauseCtx); resumeErr != nil {
-				d.logger.Error(
-					"resume failed after snapshot error; VM may remain paused and require manual recovery",
-					"task_id", taskID,
-					"snapshot_err", err,
-					"resume_err", resumeErr,
-					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
-				)
-				return fmt.Errorf("snapshot creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
-			}
-			if rmErr := os.RemoveAll(snapshotDir); rmErr != nil {
-				d.logger.Warn("failed to clean up snapshot directory after snapshot error", "task_id", taskID, "dir", snapshotDir, "err", rmErr)
-			}
-			return fmt.Errorf("snapshot creation failed, VM resumed without snapshot: %v", err)
-		}
-
-		handle.stateLock.Lock()
-		handle.snapshotMemPath = memPath
-		handle.snapshotPath = snapPath
-		handle.stateLock.Unlock()
-
-		d.logger.Info("VM suspended with snapshot", "task_id", taskID)
-		return nil
-
 	case "SIGCONT":
 		handle.stateLock.RLock()
 		memPath := handle.snapshotMemPath
@@ -589,21 +585,16 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
 		}
 
-		// Check if VM is still accessible. This only works if the Firecracker process is still running
-		// in the same agent instance. If the agent restarted, the process is gone and Resume will fail.
-		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer checkCancel()
+		// Fire-and-forget resume attempt. Check VM accessibility first with reasonable timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-		if _, err := c.GetInstanceInfo(checkCtx); err != nil {
+		if _, err := c.GetInstanceInfo(ctx); err != nil {
 			d.logger.Warn("cannot resume: VM not accessible (may have been terminated or agent restarted)", "task_id", taskID, "err", err)
 			return fmt.Errorf("VM not accessible for resume: Firecracker process may have terminated or agent restarted since SIGSTOP was sent")
 		}
 
-		// Resume operation with separate timeout
-		resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer resumeCancel()
-
-		if err := c.Resume(resumeCtx); err != nil {
+		if err := c.Resume(ctx); err != nil {
 			d.logger.Warn("resume failed", "task_id", taskID, "err", err)
 			return fmt.Errorf("resume failed: %v", err)
 		}
@@ -612,7 +603,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return nil
 
 	default:
-		return fmt.Errorf("signal not supported: %s", signal)
+		return fmt.Errorf("signal not supported in SignalTask: %s (use StopTask for SIGSTOP)", signal)
 	}
 }
 
