@@ -199,6 +199,11 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 // This follows the official Firecracker pattern: files must be hard-linked into the
 // chroot because the jailed Firecracker process cannot access host paths.
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
+	// Validate plugin config is initialized
+	if d.config == nil {
+		return errors.New("plugin configuration not initialized; SetConfig must be called before StartTask")
+	}
+
 	jailorRootDir := filepath.Dir(configPath) // Same as jailer root
 
 	// Validate all image paths
@@ -235,8 +240,9 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 		}
 	}
 
-	// Build request with guest files to link
+	// Build request with guest files to link and track resolved paths for lookup
 	req := &jailer.LinkGuestFilesRequest{}
+	resolvedPaths := make(map[string]string) // Maps original -> resolved paths
 
 	// Resolve symlinks immediately before linking to prevent TOCTOU attacks
 	// After resolution, re-validate the target against allowed paths to prevent escape attempts
@@ -251,6 +257,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 				return fmt.Errorf("kernel_image_path symlink target %q is not in allowed paths", resolvedKernel)
 			}
 			req.KernelImagePath = resolvedKernel
+			resolvedPaths[cfg.BootSource.KernelImagePath] = resolvedKernel
 		}
 		if cfg.BootSource.InitrdPath != "" {
 			resolvedInitrd, err := filepath.EvalSymlinks(cfg.BootSource.InitrdPath)
@@ -262,6 +269,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 				return fmt.Errorf("initrd_path symlink target %q is not in allowed paths", resolvedInitrd)
 			}
 			req.InitrdPath = resolvedInitrd
+			resolvedPaths[cfg.BootSource.InitrdPath] = resolvedInitrd
 		}
 	}
 
@@ -278,6 +286,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 					return fmt.Errorf("drive[%d].path_on_host symlink target %q is not in allowed paths", i, resolvedDrive)
 				}
 				req.DrivePaths[i] = resolvedDrive
+				resolvedPaths[drive.PathOnHost] = resolvedDrive
 			}
 		}
 	}
@@ -289,21 +298,37 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 	}
 
 	// Update config with relative paths (as seen from inside chroot)
+	// Use resolved paths for lookup, falling back to original paths if not found
 	if cfg.BootSource != nil && cfg.BootSource.KernelImagePath != "" {
-		if relativeName, ok := linkedPaths[cfg.BootSource.KernelImagePath]; ok {
+		originalPath := cfg.BootSource.KernelImagePath
+		resolvedPath := resolvedPaths[originalPath]
+		if resolvedPath == "" {
+			resolvedPath = originalPath // Fallback to original if not resolved
+		}
+		if relativeName, ok := linkedPaths[resolvedPath]; ok {
 			cfg.BootSource.KernelImagePath = relativeName
 		}
 	}
 
 	if cfg.BootSource != nil && cfg.BootSource.InitrdPath != "" {
-		if relativeName, ok := linkedPaths[cfg.BootSource.InitrdPath]; ok {
+		originalPath := cfg.BootSource.InitrdPath
+		resolvedPath := resolvedPaths[originalPath]
+		if resolvedPath == "" {
+			resolvedPath = originalPath // Fallback to original if not resolved
+		}
+		if relativeName, ok := linkedPaths[resolvedPath]; ok {
 			cfg.BootSource.InitrdPath = relativeName
 		}
 	}
 
 	for i, drive := range cfg.Drives {
 		if drive.PathOnHost != "" {
-			if relativeName, ok := linkedPaths[drive.PathOnHost]; ok {
+			originalPath := drive.PathOnHost
+			resolvedPath := resolvedPaths[originalPath]
+			if resolvedPath == "" {
+				resolvedPath = originalPath // Fallback to original if not resolved
+			}
+			if relativeName, ok := linkedPaths[resolvedPath]; ok {
 				cfg.Drives[i].PathOnHost = relativeName
 			}
 		}
@@ -620,6 +645,8 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
+	startTime := time.Now()
+
 	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
 	// and wait for VM to exit before forcing shutdown
 	if signal == "SIGTERM" || signal == "SIGINT" {
@@ -650,8 +677,16 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 forceShutdown:
-	// Force shutdown via executor
-	if err := handle.exec.Shutdown(signal, timeout); err != nil {
+	// Calculate remaining time budget to respect caller's timeout
+	elapsedTime := time.Since(startTime)
+	remainingTime := timeout - elapsedTime
+	if remainingTime <= 0 {
+		// Timeout budget exhausted; attempt immediate shutdown with zero timeout
+		remainingTime = 1 * time.Millisecond
+	}
+
+	// Force shutdown via executor with remaining time budget
+	if err := handle.exec.Shutdown(signal, remainingTime); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
 		}
