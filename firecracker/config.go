@@ -15,7 +15,8 @@ import (
 
 var (
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"jailer": hclspec.NewBlock("jailer", true, jailer.HCLSpec()),
+		"image_paths": hclspec.NewAttr("image_paths", "list(string)", false),
+		"jailer":      hclspec.NewBlock("jailer", true, jailer.HCLSpec()),
 	})
 
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
@@ -37,7 +38,9 @@ var (
 )
 
 type Config struct {
-	Jailer *jailer.JailerConfig `codec:"jailer"`
+	// ImagePaths is an allowlist of paths firecracker is allowed to load images from
+	ImagePaths []string              `codec:"image_paths"`
+	Jailer     *jailer.JailerConfig `codec:"jailer"`
 }
 
 func (c *Config) Validate() error {

@@ -163,12 +163,67 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
+// isAllowedImagePath checks if a path is under the allocation directory or
+// within the configured allowlist of image paths. This prevents tenants from
+// specifying arbitrary host paths.
+func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool {
+	if !filepath.IsAbs(imagePath) {
+		imagePath = filepath.Join(allocDir, imagePath)
+	}
+
+	isParent := func(parent, path string) bool {
+		rel, err := filepath.Rel(parent, path)
+		return err == nil && !strings.HasPrefix(rel, "..")
+	}
+
+	// Check if path is under alloc dir
+	if isParent(allocDir, imagePath) {
+		return true
+	}
+
+	// Check allowed paths
+	for _, ap := range allowedPaths {
+		if isParent(ap, imagePath) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // prepareGuestFiles links guest files (kernel, initrd, drives) into the jailer chroot
 // and updates the task config with relative paths for use in the VM config.
 // This follows the official Firecracker pattern: files must be hard-linked into the
 // chroot because the jailed Firecracker process cannot access host paths.
-func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath string) error {
+func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
 	jailorRootDir := filepath.Dir(configPath) // Same as jailer root
+
+	// Validate and collect all image paths first
+	imagePaths := make([]string, 0)
+
+	if cfg.BootSource != nil {
+		if cfg.BootSource.KernelImagePath != "" {
+			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.KernelImagePath) {
+				return fmt.Errorf("kernel_image_path %q is not in allowed paths", cfg.BootSource.KernelImagePath)
+			}
+			imagePaths = append(imagePaths, cfg.BootSource.KernelImagePath)
+		}
+		if cfg.BootSource.InitrdPath != "" {
+			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.InitrdPath) {
+				return fmt.Errorf("initrd_path %q is not in allowed paths", cfg.BootSource.InitrdPath)
+			}
+			imagePaths = append(imagePaths, cfg.BootSource.InitrdPath)
+		}
+	}
+
+	for i, drive := range cfg.Drives {
+		if drive.PathOnHost != "" {
+			if !isAllowedImagePath(d.config.ImagePaths, allocDir, drive.PathOnHost) {
+				return fmt.Errorf("drive[%d].path_on_host %q is not in allowed paths", i, drive.PathOnHost)
+			}
+			imagePaths = append(imagePaths, drive.PathOnHost)
+		}
+	}
 
 	// Build request with guest files to link
 	req := &jailer.LinkGuestFilesRequest{}
@@ -241,7 +296,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	configPathChroot := paths.ConfigPathChroot
 
 	// Link guest files (kernel, initrd, drives) into jailer chroot and update config with relative paths
-	if err := d.prepareGuestFiles(&driverConfig, configPath); err != nil {
+	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
 		_ = os.Remove(configPath)
 		return nil, nil, err
 	}
@@ -410,8 +465,7 @@ func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.
 			// Step 2: Verify API responds (health check)
 			c := client.New(socketPath)
 			// SDK's GetMachineConfiguration uses the client's global firecrackerRequestTimeout (default 500ms).
-			// The context parameter is unused here since the SDK method doesn't accept it
-			_, err := c.GetMachineConfiguration(context.Background())
+			_, err := c.GetMachineConfiguration()
 
 			if err == nil {
 				return nil // Socket ready: file exists and API responds
@@ -525,13 +579,36 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
-	// This matches QEMU pattern: try graceful shutdown, then let executor handle fallback
+	// and wait for VM to exit before forcing shutdown
 	if signal == "SIGTERM" || signal == "SIGINT" {
-		// Non-blocking attempt at graceful shutdown; returns immediately
-		_ = handle.forwardSignal(context.Background(), signal, 5*time.Second)
-		// Fall through to executor shutdown with full timeout for enforcement
+		err := handle.forwardSignal(context.Background(), signal, 5*time.Second)
+		if err == nil {
+			// Graceful shutdown initiated, wait for VM to exit
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					// Timeout expired, fall through to force shutdown
+					d.logger.Warn("graceful shutdown timed out, forcing shutdown", "task_id", taskID, "timeout", timeout)
+					goto forceShutdown
+				case <-ticker.C:
+					if !handle.IsRunning() {
+						// VM exited gracefully
+						return nil
+					}
+				}
+			}
+		}
+		d.logger.Debug("graceful shutdown failed, falling back to forced shutdown", "task_id", taskID, "err", err)
 	}
 
+forceShutdown:
+	// Force shutdown via executor
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil

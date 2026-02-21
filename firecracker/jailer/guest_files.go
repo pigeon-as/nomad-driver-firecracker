@@ -21,7 +21,7 @@ type FileLinkRequest struct {
 // This follows the official Firecracker pattern: files must be hard-linked into the
 // chroot directory because the jailed Firecracker process cannot access host paths.
 //
-// Returns a map of target names (for use in VM config) to their linked paths.
+// Returns a map of source paths to their target names in the chroot (for use in VM config).
 func LinkFilesIntoJail(jailorRootPath string, requests []FileLinkRequest) (map[string]string, error) {
 	if len(requests) == 0 {
 		return make(map[string]string), nil
@@ -100,6 +100,21 @@ func LinkGuestFilesForTask(jailorRootPath string, req *LinkGuestFilesRequest) (m
 				SourcePath: drivePath,
 				TargetName: filepath.Base(drivePath),
 			})
+		}
+	}
+
+	// Detect collisions in target filenames before creating links so we can return
+	// a clear validation error instead of a low-level "file exists" from os.Link
+	nameToSources := make(map[string][]string, len(linkRequests))
+	for _, lr := range linkRequests {
+		if lr.TargetName == "" {
+			continue
+		}
+		nameToSources[lr.TargetName] = append(nameToSources[lr.TargetName], lr.SourcePath)
+	}
+	for name, sources := range nameToSources {
+		if len(sources) > 1 {
+			return nil, fmt.Errorf("multiple guest files share same target name %q: %v", name, sources)
 		}
 	}
 

@@ -9,10 +9,12 @@ replace github.com/armon/go-metrics => github.com/hashicorp/go-metrics v0.5.3
 require (
 	github.com/firecracker-microvm/firecracker-go-sdk v1.0.0
 	github.com/go-openapi/strfmt v0.21.2
+	github.com/hashicorp/consul-template v0.41.3
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/hashicorp/nomad v1.11.1
 	github.com/mitchellh/mapstructure v1.5.0
+	github.com/shoenig/test v1.12.2
 )
 
 require (
@@ -71,7 +73,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/hashicorp/cli v1.1.7 // indirect
-	github.com/hashicorp/consul-template v0.41.3 // indirect
 	github.com/hashicorp/consul/api v1.33.0 // indirect
 	github.com/hashicorp/cronexpr v1.1.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -150,7 +151,6 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-landlock v1.2.2 // indirect
 	github.com/shoenig/go-m1cpu v0.1.7 // indirect
-	github.com/shoenig/test v1.12.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
