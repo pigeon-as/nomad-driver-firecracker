@@ -28,6 +28,18 @@ func (c *Client) GetInstanceInfo(ctx context.Context) (*models.InstanceInfo, err
 	return resp.Payload, nil
 }
 
+// GetMachineConfiguration is a pre-boot health check for Firecracker API readiness.
+func (c *Client) GetMachineConfiguration(ctx context.Context) (*models.MachineConfiguration, error) {
+	if c == nil || c.client == nil {
+		return nil, errors.New("client is not initialized")
+	}
+	resp, err := c.client.GetMachineConfiguration(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func (c *Client) SendCtrlAltDel(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")

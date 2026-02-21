@@ -347,7 +347,7 @@ func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.
 			// Step 2: Verify API responds (health check)
 			c := client.New(socketPath)
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err := c.GetInstanceInfo(ctx)
+			_, err := c.GetMachineConfiguration(ctx)
 			cancel()
 
 			if err == nil {
