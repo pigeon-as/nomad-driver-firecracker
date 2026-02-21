@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var versionRegex = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
+
 func QueryVersion(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -16,7 +18,6 @@ func QueryVersion(bin string) string {
 	if err != nil {
 		return ""
 	}
-	re := regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
-	version := re.FindString(string(out))
+	version := versionRegex.FindString(string(out))
 	return version
 }

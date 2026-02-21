@@ -465,10 +465,28 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 
 		c := client.New(handle.socketPath)
 		if err := c.SendCtrlAltDel(ctx); err != nil {
-			d.logger.Warn("graceful shutdown failed, will force kill", "signal", signal, "err", err)
+			d.logger.Warn("graceful shutdown via Ctrl+Alt+Del failed, will force kill", "signal", signal, "err", err)
 		} else {
 			d.logger.Info("graceful shutdown initiated via Ctrl+Alt+Del", "task_id", taskID)
-			return nil
+			// Wait up to timeout for process to exit after Ctrl+Alt+Del
+			exitChan := make(chan struct{})
+			go func() {
+				for {
+					if handle.pluginClient.Exited() {
+						close(exitChan)
+						return
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+			}()
+
+			select {
+			case <-exitChan:
+				d.logger.Info("VM shut down gracefully after Ctrl+Alt+Del", "task_id", taskID)
+				return nil
+			case <-ctx.Done():
+				d.logger.Warn("VM did not shut down within timeout; falling back to force kill", "task_id", taskID, "timeout", timeout)
+			}
 		}
 	}
 
@@ -585,21 +603,22 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
 		}
 
-		// Fire-and-forget resume attempt. Check VM accessibility first with reasonable timeout.
+		// Fire-and-forget resume attempt with snapshot recovery fallback.
+		// Try resume first (normal pause/resume cycle).
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if _, err := c.GetInstanceInfo(ctx); err != nil {
 			d.logger.Warn("cannot resume: VM not accessible (may have been terminated or agent restarted)", "task_id", taskID, "err", err)
-			return fmt.Errorf("VM not accessible for resume: Firecracker process may have terminated or agent restarted since SIGSTOP was sent")
+			return fmt.Errorf("VM not accessible for resume: %w", err)
 		}
 
 		if err := c.Resume(ctx); err != nil {
-			d.logger.Warn("resume failed", "task_id", taskID, "err", err)
-			return fmt.Errorf("resume failed: %v", err)
+			d.logger.Warn("resume of paused VM failed; snapshot preserved on disk for manual recovery", "task_id", taskID, "err", err, "snapshot_mem", memPath, "snapshot_state", snapPath)
+			return fmt.Errorf("resume failed: %w", err)
 		}
 
-		d.logger.Info("VM resumed from snapshot", "task_id", taskID)
+		d.logger.Info("VM resumed from paused state", "task_id", taskID)
 		return nil
 
 	default:

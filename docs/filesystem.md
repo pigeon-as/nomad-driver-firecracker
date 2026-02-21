@@ -6,19 +6,21 @@ All files for a task live within the allocation directory:
 allocDir/
 ├── alloc/              # Nomad allocation data
 ├── task/               # Task working directory (guest writable)
-│   └── jailer/
-│       └── <task_id>/   # Jailer instance (ID set to task ID)
-│           └── root/    # Jailer chroot
-│               ├── firecracker # Firecracker daemon
-│               ├── run/
-│               │   └── firecracker.socket  # HTTP API socket
-│               ├── dev/
-│               ├── proc/
-│               └── sys/
+│   └── <task_name>/    # Task instance directory
+│       └── jailer/
+│           └── <task_id>/   # Jailer instance (ID set to task ID)
+│               └── root/    # Jailer chroot
+│                   ├── firecracker # Firecracker daemon
+│                   ├── run/
+│                   │   └── firecracker.socket  # HTTP API socket
+│                   ├── dev/
+│                   ├── proc/
+│                   └── sys/
 ├── secrets/            # Secrets provisioned by Nomad
-└── snapshot/           # Snapshot files (SIGSTOP)
-    ├── memory.img      # VM memory dump
-    └── state.vmstate   # VM hardware state
+└── snapshots/          # Snapshot files (SIGSTOP)
+    └── <task_id>/
+        ├── memory.img      # VM memory dump
+        └── state.vmstate   # VM hardware state
 ```
 
 ## Jailer
@@ -37,4 +39,14 @@ allocDir/
 - Tap interfaces: provisioned by Nomad networking
 - Interface configuration: included in initial `vmconfig.json` passed to Firecracker at startup
 - No bridge setup in driver: delegated to Nomad
+
+## Snapshots
+- Created when task receives SIGSTOP signal (suspend VM with snapshot)
+- Location: `allocDir/snapshots/<task_id>/`
+- Files: `memory.img` (VM memory) + `state.vmstate` (CPU/I/O state)
+- Lifecycle: temporary, task-scoped (deleted on task destroy)
+- Cleanup: automatic when task is destroyed; manual cleanup possible during task execution via task destroy
+- Use case: Fast VM resume via SIGCONT (~hundreds of ms vs ~2+ seconds cold start)
+
+See [VM Snapshots](snapshots.md) for suspend/resume semantics and best practices.
 - Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)

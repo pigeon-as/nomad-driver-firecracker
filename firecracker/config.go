@@ -15,7 +15,7 @@ import (
 
 var (
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"jailer": hclspec.NewBlock("jailer", false, hclspec.NewObject(map[string]*hclspec.Spec{
+		"jailer": hclspec.NewBlock("jailer", true, hclspec.NewObject(map[string]*hclspec.Spec{
 			"exec_file": hclspec.NewDefault(
 				hclspec.NewAttr("exec_file", "string", false),
 				hclspec.NewLiteral(`"firecracker"`),
