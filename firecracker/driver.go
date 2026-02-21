@@ -46,13 +46,11 @@ var (
 )
 
 type TaskState struct {
-	ReattachConfig  *structs.ReattachConfig
-	TaskConfig      *drivers.TaskConfig
-	StartedAt       time.Time
-	Pid             int
-	SocketPath      string
-	SnapshotMemPath string
-	SnapshotPath    string
+	ReattachConfig *structs.ReattachConfig
+	TaskConfig     *drivers.TaskConfig
+	StartedAt      time.Time
+	Pid            int
+	SocketPath     string
 }
 
 type FirecrackerDriverPlugin struct {
@@ -166,7 +164,7 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
-func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
+func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *drivers.TaskHandle, network *drivers.DriverNetwork, err error) {
 	if _, ok := d.tasks.Get(cfg.ID); ok {
 		return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
 	}
@@ -219,12 +217,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
-	if d.config == nil || d.config.Jailer == nil {
-		pluginClient.Kill()
-		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
-			d.logger.Error("failed to shutdown executor after missing jailer config", "error", shutdownErr)
+	// Guarantee cleanup of executor resources on any error
+	defer func() {
+		if err != nil {
+			pluginClient.Kill()
+			if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
+				d.logger.Error("failed to shutdown executor on error", "error", shutdownErr)
+			}
 		}
-		return nil, nil, errors.New("jailer configuration missing")
+	}()
+
+	if d.config == nil || d.config.Jailer == nil {
+		err = errors.New("jailer configuration missing")
+		return nil, nil, err
 	}
 
 	jConfig := d.config.Jailer
@@ -247,11 +252,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot, "--log-path", logPathChroot)
 	if err != nil {
-		pluginClient.Kill()
-		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
-			d.logger.Error("failed to shutdown executor after invalid jailer configuration", "error", shutdownErr)
-		}
-		return nil, nil, fmt.Errorf("invalid jailer configuration: %v", err)
+		err = fmt.Errorf("invalid jailer configuration: %v", err)
+		return nil, nil, err
 	}
 	execCmd := &executor.ExecCommand{
 		Cmd:        jConfig.Bin(),
@@ -262,11 +264,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	ps, err := exec.Launch(execCmd)
 	if err != nil {
-		pluginClient.Kill()
-		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
-			d.logger.Error("failed to shutdown executor after launch failure", "error", shutdownErr)
-		}
-		return nil, nil, fmt.Errorf("failed to launch command with executor: %v", err)
+		err = fmt.Errorf("failed to launch command with executor: %v", err)
+		return nil, nil, err
 	}
 
 	h := &taskHandle{
@@ -288,17 +287,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		SocketPath:     h.socketPath,
 	}
 
-	if err := handle.SetDriverState(&driverState); err != nil {
-		pluginClient.Kill()
-		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
-			d.logger.Error("failed to shutdown executor after SetDriverState error", "error", shutdownErr)
-		}
-		return nil, nil, fmt.Errorf("failed to set driver state: %v", err)
+	if err = handle.SetDriverState(&driverState); err != nil {
+		err = fmt.Errorf("failed to set driver state: %v", err)
+		return nil, nil, err
 	}
 
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
-	return handle, nil, nil
+	handle = h
+	return handle, network, nil
 }
 
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
@@ -331,17 +328,17 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	}
 
 	h := &taskHandle{
-		exec:            execImpl,
-		pid:             taskState.Pid,
-		pluginClient:    pluginClient,
-		taskConfig:      taskState.TaskConfig,
-		procState:       drivers.TaskStateRunning,
-		startedAt:       taskState.StartedAt,
-		exitResult:      &drivers.ExitResult{},
-		socketPath:      taskState.SocketPath,
-		logger:          d.logger,
-		snapshotMemPath: taskState.SnapshotMemPath,
-		snapshotPath:    taskState.SnapshotPath,
+		exec:         execImpl,
+		pid:          taskState.Pid,
+		pluginClient: pluginClient,
+		taskConfig:   taskState.TaskConfig,
+		procState:    drivers.TaskStateRunning,
+		startedAt:    taskState.StartedAt,
+		exitResult:   &drivers.ExitResult{},
+		socketPath:   taskState.SocketPath,
+		logger:       d.logger,
+		// Snapshot paths are deterministically derived from taskID and allocDir,
+		// not persisted in state. Initialized empty; populated when snapshots are created.
 	}
 
 	if h.socketPath != "" {
@@ -419,7 +416,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			return fmt.Errorf("pause failed: %v", err)
 		}
 
-		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
+		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshots", taskID)
 		if err := os.MkdirAll(snapshotDir, 0755); err != nil {
 			d.logger.Warn("failed to create snapshot directory", "task_id", taskID, "err", err)
 			return fmt.Errorf("snapshot dir creation failed: %v", err)
@@ -548,7 +545,7 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 		}
 	}
 
-	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
+	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshots", taskID)
 	if err := os.RemoveAll(snapshotDir); err != nil && !os.IsNotExist(err) {
 		d.logger.Debug("snapshot directory clean up failed", "path", snapshotDir, "err", err)
 	}

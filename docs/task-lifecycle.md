@@ -20,7 +20,7 @@
 1. Nomad sends signal `SIGSTOP` via driver's `StopTask()`
 2. Driver pauses the VM via Firecracker API
 3. Driver creates a snapshot of complete VM state (memory, CPU registers, I/O state)
-4. Snapshot files stored at `allocDir/snapshot`
+4. Snapshot files stored at `allocDir/snapshots/<task_id>/`
 5. Task remains in suspended state, ready for fast resume
 
 **Resume Performance:** ~hundreds of milliseconds vs ~2+ seconds for cold start.
@@ -33,4 +33,4 @@ See [VM Snapshots](snapshots.md) for suspend/resume semantics, network connectio
 3. Verifies VM is responsive via HTTP health check
 4. Restores socket path and snapshot state (if suspended)
 
-**Snapshot Effect on Recovery:** If task was suspended, snapshot files in `allocDir/snapshot` are preserved and available for resume.
+**Snapshot Effect on Recovery:** If task was suspended, snapshot files in `allocDir/snapshots/<task_id>/` are preserved and available for resume.

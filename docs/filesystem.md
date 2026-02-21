@@ -17,9 +17,10 @@ allocDir/
 │                   ├── proc/
 │                   └── sys/
 ├── secrets/            # Secrets provisioned by Nomad
-└── snapshot/            # Snapshot files (SIGSTOP)
-    ├── memory.img      # VM memory dump
-    └── state.vmstate   # VM hardware state
+└── snapshots/          # Snapshot files (SIGSTOP), per-task isolation
+    └── <task_id>/      # Task snapshot directory
+        ├── memory.img      # VM memory dump
+        └── state.vmstate   # VM hardware state
 ```
 
 ## Jailer
@@ -41,7 +42,7 @@ allocDir/
 
 ## Snapshots
 - Created when task receives SIGSTOP signal (suspend VM with snapshot)
-- Location: `allocDir/snapshot`
+- Location: `allocDir/snapshots/<task_id>/`
 - Files: `memory.img` (VM memory) + `state.vmstate` (CPU/I/O state)
 - Lifecycle: temporary, task-scoped (deleted on task destroy)
 - Cleanup: automatic when task is destroyed; manual cleanup possible during task execution via task destroy
