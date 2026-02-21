@@ -93,23 +93,26 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, timeo
 		h.logger.Warn("unknown signal to forward to firecracker, using SIGINT", "signal", signalName, "task_id", h.taskConfig.ID)
 	}
 
-	// For graceful shutdown signals, attempt Ctrl+Alt+Del first
+	// For graceful shutdown signals, attempt Ctrl+Alt+Del first via Firecracker API
 	if sig == syscall.SIGTERM || sig == syscall.SIGINT {
-		if h.socketPath != "" {
+		if h.socketPath == "" {
+			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
+		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 
 			c := client.New(h.socketPath)
 			if err := c.SendCtrlAltDel(ctx); err != nil {
-				h.logger.Debug("graceful shutdown via Ctrl+Alt+Del failed, will forward signal", "signal", signalName, "err", err)
+				h.logger.Debug("graceful shutdown via ctrl+alt+del failed, will forward signal to process", "signal", signalName, "err", err)
 				// Fall through to send signal to executor
 			} else {
-				h.logger.Debug("graceful shutdown initiated via Ctrl+Alt+Del", "task_id", h.taskConfig.ID)
+				h.logger.Info("graceful shutdown initiated via ctrl+alt+del", "task_id", h.taskConfig.ID)
 				return nil
 			}
 		}
 	}
 
 	// Forward the signal to the executor/VMM process
+	h.logger.Debug("forwarding signal to firecracker process", "signal", signalName, "task_id", h.taskConfig.ID)
 	return h.exec.Signal(sig)
 }

@@ -20,8 +20,8 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
-	"	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer""
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/vm"
 )
@@ -273,6 +273,20 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		return nil, nil, err
 	}
 
+	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
+
+	// Give Firecracker time to create socket and be ready for API calls
+	// Firecracker docs recommend 15-30ms before configuration calls
+	time.Sleep(30 * time.Millisecond)
+
+	// Verify socket is accessible before returning handle
+	socketPath := deriveSocketPath(cfg.TaskDir().Dir, cfg.ID)
+	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
+		d.logger.Warn("socket not ready after startup", "task_id", cfg.ID, "err", err)
+	}
+
+	d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
+
 	h := &taskHandle{
 		exec:         exec,
 		pid:          ps.Pid,
@@ -281,7 +295,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
-		socketPath:   deriveSocketPath(cfg.TaskDir().Dir, cfg.ID),
+		socketPath:   socketPath,
 	}
 
 	driverState := TaskState{
@@ -298,7 +312,46 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
+	d.logger.Info("task started successfully", "task_id", cfg.ID)
 	return handle, network, nil
+}
+
+// waitForSocket verifies that Firecracker socket is accessible and API is responding.
+// Follows official Firecracker SDK pattern: first check socket file exists, then verify
+// API responds to a health check. Uses tight 10ms polling interval for quick detection.
+func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Step 1: Verify socket file exists (required for API connectivity)
+			if _, err := os.Stat(socketPath); err != nil {
+				if time.Now().After(deadline) {
+					return fmt.Errorf("socket file not found after %v: %v", timeout, err)
+				}
+				continue
+			}
+
+			// Step 2: Verify API responds (health check)
+			c := client.New(socketPath)
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err := c.GetInstanceInfo(ctx)
+			cancel()
+
+			if err == nil {
+				return nil // Socket ready: file exists and API responds
+			}
+
+			if time.Now().After(deadline) {
+				return fmt.Errorf("socket not ready after %v: %v", timeout, err)
+			}
+		case <-d.ctx.Done():
+			return fmt.Errorf("socket verification cancelled")
+		}
+	}
 }
 
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
@@ -314,7 +367,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	if err := handle.GetDriverState(&taskState); err != nil {
 		return fmt.Errorf("failed to decode task state from handle: %v", err)
 	}
-
+	d.logger.Info("recovering task", "task_id", handle.Config.ID, "pid", taskState.Pid)
 	var driverConfig TaskConfig
 	if err := taskState.TaskConfig.DecodeDriverConfig(&driverConfig); err != nil {
 		return fmt.Errorf("failed to decode driver config: %v", err)
@@ -345,6 +398,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
 
 	go h.run()
+	d.logger.Info("task recovered successfully", "task_id", taskState.TaskConfig.ID)
 	return nil
 }
 
