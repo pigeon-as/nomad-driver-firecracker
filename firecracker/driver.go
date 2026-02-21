@@ -191,15 +191,17 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 		ChrootPath:   jailerRootDir,
 	}
 
-	if err := jailer.PrepareGuestFiles(params); err != nil {
+	paths, err := jailer.PrepareGuestFiles(params)
+	if err != nil {
 		return err
 	}
 
-	// Update cfg with relative paths from jailer
-	cfg.BootSource.KernelImagePath = guestCfg.Kernel
-	cfg.BootSource.InitrdPath = guestCfg.Initrd
+	cfg.BootSource.KernelImagePath = paths.Kernel
+	cfg.BootSource.InitrdPath = paths.Initrd
 	for i := range cfg.Drives {
-		cfg.Drives[i].PathOnHost = guestCfg.Drives[i]
+		if i < len(paths.Drives) {
+			cfg.Drives[i].PathOnHost = paths.Drives[i]
+		}
 	}
 
 	d.logger.Debug("guest files linked into jailer chroot")

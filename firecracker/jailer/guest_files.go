@@ -144,6 +144,13 @@ type GuestFileConfig struct {
 	Drives []string
 }
 
+// GuestFilePaths holds the resolved relative paths for linked guest files
+type GuestFilePaths struct {
+	Kernel string
+	Initrd string
+	Drives []string
+}
+
 // PrepareGuestFilesParams holds parameters for preparing guest files
 type PrepareGuestFilesParams struct {
 	Config       *GuestFileConfig
@@ -152,11 +159,12 @@ type PrepareGuestFilesParams struct {
 	ChrootPath   string
 }
 
-// PrepareGuestFiles orchestrates guest file preparation: validates and resolves paths,
-// links files into chroot, and updates config with relative filenames.
-func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
+// PrepareGuestFiles validates, resolves, and links guest files into chroot.
+// Returns the resolved relative basenames in GuestFilePaths.
+// The input config is not modified.
+func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error) {
 	if params == nil || params.Config == nil {
-		return fmt.Errorf("prepare guest files: invalid parameters")
+		return nil, fmt.Errorf("prepare guest files: invalid parameters")
 	}
 
 	// Validate and resolve kernel path
@@ -165,7 +173,7 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
 		var err error
 		kernelPath, err = ValidateAndResolvePath(params.Config.Kernel, "kernel", params.AllocDir, params.AllowedPaths)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -175,7 +183,7 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
 		var err error
 		initrdPath, err = ValidateAndResolvePath(params.Config.Initrd, "initrd", params.AllocDir, params.AllowedPaths)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -188,7 +196,7 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
 				var err error
 				drivePaths[i], err = ValidateAndResolvePath(drivePathCfg, fmt.Sprintf("drive[%d]", i), params.AllocDir, params.AllowedPaths)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 		}
@@ -196,21 +204,22 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
 
 	// Link all files into chroot
 	if err := LinkGuestFiles(params.ChrootPath, kernelPath, initrdPath, drivePaths); err != nil {
-		return fmt.Errorf("failed to link guest files: %w", err)
+		return nil, fmt.Errorf("failed to link guest files: %w", err)
 	}
 
-	// Update config with relative filenames (just the basename)
-	if kernelPath != "" {
-		params.Config.Kernel = filepath.Base(kernelPath)
+	// Build result with relative basenames
+	paths := &GuestFilePaths{
+		Kernel: filepath.Base(kernelPath),
+		Initrd: filepath.Base(initrdPath),
 	}
-	if initrdPath != "" {
-		params.Config.Initrd = filepath.Base(initrdPath)
-	}
-	for i, drivePath := range drivePaths {
-		if drivePath != "" {
-			params.Config.Drives[i] = filepath.Base(drivePath)
+	if len(drivePaths) > 0 {
+		paths.Drives = make([]string, len(drivePaths))
+		for i, p := range drivePaths {
+			if p != "" {
+				paths.Drives[i] = filepath.Base(p)
+			}
 		}
 	}
 
-	return nil
+	return paths, nil
 }
