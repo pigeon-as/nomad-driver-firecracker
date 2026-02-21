@@ -521,17 +521,20 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return errors.New("socket path not available")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	c := client.New(handle.socketPath)
 
 	switch signal {
 	case "SIGTERM", "SIGINT":
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		return c.SendCtrlAltDel(ctx)
 
 	case "SIGSTOP":
-		if err := c.Pause(ctx); err != nil {
+		// Pause operation needs adequate time to complete
+		pauseCtx, pauseCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer pauseCancel()
+
+		if err := c.Pause(pauseCtx); err != nil {
 			d.logger.Warn("pause failed", "task_id", taskID, "err", err)
 			return fmt.Errorf("pause failed: %v", err)
 		}
@@ -545,9 +548,13 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		memPath := filepath.Join(snapshotDir, "memory.img")
 		snapPath := filepath.Join(snapshotDir, "state.vmstate")
 
-		if err := c.CreateSnapshot(ctx, memPath, snapPath); err != nil {
+		// Snapshot creation can take considerable time, especially for large VMs
+		snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer snapshotCancel()
+
+		if err := c.CreateSnapshot(snapshotCtx, memPath, snapPath); err != nil {
 			d.logger.Warn("snapshot creation failed, attempting to resume", "task_id", taskID, "err", err)
-			if resumeErr := c.Resume(ctx); resumeErr != nil {
+			if resumeErr := c.Resume(pauseCtx); resumeErr != nil {
 				d.logger.Error(
 					"resume failed after snapshot error; VM may remain paused and require manual recovery",
 					"task_id", taskID,
@@ -582,15 +589,21 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 			return errors.New("SIGCONT requires prior SIGSTOP (no snapshot available)")
 		}
 
-		// Verify VM is still accessible before attempting resume
-		// Note: Firecracker Resume() only works on paused VMs within the same process lifecycle
-		// If the VM process was killed or agent restarted, resume will fail
-		if _, err := c.GetInstanceInfo(ctx); err != nil {
-			d.logger.Warn("cannot resume: VM not accessible", "task_id", taskID, "err", err)
-			return fmt.Errorf("VM not accessible for resume (may have been terminated): %v", err)
+		// Check if VM is still accessible. This only works if the Firecracker process is still running
+		// in the same agent instance. If the agent restarted, the process is gone and Resume will fail.
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer checkCancel()
+
+		if _, err := c.GetInstanceInfo(checkCtx); err != nil {
+			d.logger.Warn("cannot resume: VM not accessible (may have been terminated or agent restarted)", "task_id", taskID, "err", err)
+			return fmt.Errorf("VM not accessible for resume: Firecracker process may have terminated or agent restarted since SIGSTOP was sent")
 		}
 
-		if err := c.Resume(ctx); err != nil {
+		// Resume operation with separate timeout
+		resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer resumeCancel()
+
+		if err := c.Resume(resumeCtx); err != nil {
 			d.logger.Warn("resume failed", "task_id", taskID, "err", err)
 			return fmt.Errorf("resume failed: %v", err)
 		}
