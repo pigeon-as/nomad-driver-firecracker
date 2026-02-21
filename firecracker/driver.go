@@ -313,7 +313,16 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
 	d.logger.Info("task started successfully", "task_id", cfg.ID)
-	return handle, network, nil
+
+	// Build network information from configured interfaces
+	var driverNetwork *drivers.DriverNetwork
+	if len(driverConfig.NetworkInterfaces) > 0 {
+		driverNetwork = &drivers.DriverNetwork{
+			PortMap: map[string]int{},
+		}
+	}
+
+	return handle, driverNetwork, nil
 }
 
 // waitForSocket verifies that Firecracker socket is accessible and API is responding.
@@ -483,6 +492,15 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	}
 
 	d.tasks.Delete(taskID)
+
+	// Clean up jailer directory structure
+	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
+		jailorPath := filepath.Join(handle.taskConfig.TaskDir().Dir, "jailer", handle.taskConfig.ID)
+		if err := os.RemoveAll(jailorPath); err != nil {
+			handle.logger.Warn("failed to clean up jailer directory", "path", jailorPath, "err", err)
+		}
+	}
+
 	return nil
 }
 
