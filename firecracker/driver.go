@@ -180,14 +180,14 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
 	}
 
-	jailerRoot := filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID, "root")
-	if err := os.MkdirAll(jailerRoot, 0755); err != nil {
-		return nil, nil, fmt.Errorf("failed to create jailer root directory: %v", err)
+	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create jailer paths: %v", err)
 	}
 
-	configPath := filepath.Join(jailerRoot, "vmconfig.json")
-	configPathChroot := "/vmconfig.json"
-	logPathChroot := "/firecracker.log"
+	configPath := paths.ConfigPathHost
+	configPathChroot := paths.ConfigPathChroot
+	logPathChroot := paths.LogPathChroot
 	vmCfg := &vm.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
