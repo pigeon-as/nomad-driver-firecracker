@@ -2,6 +2,7 @@ package network_interface
 
 import (
 	"fmt"
+	"regexp"
 
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
@@ -51,6 +52,13 @@ func HCLSpec() *hclspec.Spec {
 func (staticConf StaticNetworkConfiguration) validate() error {
 	if staticConf.HostDevName == "" {
 		return fmt.Errorf("host_dev_name must be provided if static_configuration is provided: %+v", staticConf)
+	}
+	if staticConf.MacAddress != "" {
+		// Validate MAC address format (e.g., 02:fc:00:00:00:01)
+		macRegex := regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$`)
+		if !macRegex.MatchString(staticConf.MacAddress) {
+			return fmt.Errorf("invalid MAC address format (%s): expected format XX:XX:XX:XX:XX:XX", staticConf.MacAddress)
+		}
 	}
 	return nil
 }
