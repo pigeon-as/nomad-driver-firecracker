@@ -23,6 +23,8 @@ var (
 			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
 		})),
 	})
+	// macAddressRegex validates MAC address format (e.g., 02:fc:00:00:00:01)
+	macAddressRegex = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$`)
 )
 
 type NetworkInterfaces []NetworkInterface
@@ -54,9 +56,8 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 		return fmt.Errorf("host_dev_name must be provided if static_configuration is provided: %+v", staticConf)
 	}
 	if staticConf.MacAddress != "" {
-		// Validate MAC address format (e.g., 02:fc:00:00:00:01)
-		macRegex := regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$`)
-		if !macRegex.MatchString(staticConf.MacAddress) {
+		// Validate MAC address format
+		if !macAddressRegex.MatchString(staticConf.MacAddress) {
 			return fmt.Errorf("invalid MAC address format (%s): expected format XX:XX:XX:XX:XX:XX", staticConf.MacAddress)
 		}
 	}

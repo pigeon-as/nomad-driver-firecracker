@@ -98,11 +98,11 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, timeo
 		if h.socketPath == "" {
 			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
 		} else {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
+			timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
 			c := client.New(h.socketPath)
-			if err := c.SendCtrlAltDel(ctx); err != nil {
+			if err := c.SendCtrlAltDel(timeoutCtx); err != nil {
 				h.logger.Debug("graceful shutdown via ctrl+alt+del failed, will forward signal to process", "signal", signalName, "err", err)
 				// Fall through to send signal to executor
 			} else {
