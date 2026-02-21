@@ -39,7 +39,7 @@ var (
 
 type Config struct {
 	// ImagePaths is an allowlist of paths firecracker is allowed to load images from
-	ImagePaths []string              `codec:"image_paths"`
+	ImagePaths []string             `codec:"image_paths"`
 	Jailer     *jailer.JailerConfig `codec:"jailer"`
 }
 
