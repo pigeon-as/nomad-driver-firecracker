@@ -54,10 +54,14 @@ var (
 	})
 
 	capabilities = &drivers.Capabilities{
-		SendSignals:       true,
-		Exec:              false,
-		FSIsolation:       drivers.FSIsolationChroot,
-		NetIsolationModes: []drivers.NetIsolationMode{drivers.NetIsolationModeGroup},
+		SendSignals: true,
+		Exec:        false,
+		FSIsolation: drivers.FSIsolationChroot,
+		NetIsolationModes: []drivers.NetIsolationMode{
+			drivers.NetIsolationModeHost,
+			drivers.NetIsolationModeGroup,
+		},
+		MountConfigs: drivers.MountConfigSupportNone,
 	}
 )
 
