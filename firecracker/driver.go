@@ -76,12 +76,6 @@ func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
 	}
 }
 
-// deriveSocketPath computes the Firecracker socket path from task directory and ID.
-// The path is deterministic and can be derived from task config during recovery.
-func deriveSocketPath(taskDir, taskID string) string {
-	return filepath.Join(taskDir, "jailer", taskID, "root", "run", "firecracker.socket")
-}
-
 func (d *FirecrackerDriverPlugin) PluginInfo() (*base.PluginInfoResponse, error) {
 	return pluginInfo, nil
 }
@@ -221,12 +215,20 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
-	// Guarantee cleanup of executor resources on any error
+	// Derive socket path early for potential cleanup and later use
+	jailorPath := filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID)
+	socketPath := filepath.Join(jailorPath, "root", "run", "firecracker.socket")
+
+	// Guarantee cleanup of executor resources and jailer directory on any error
 	defer func() {
 		if err != nil {
 			pluginClient.Kill()
 			if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
 				d.logger.Error("failed to shutdown executor on error", "error", shutdownErr)
+			}
+			// Clean up jailer directory on startup failure
+			if rmErr := os.RemoveAll(jailorPath); rmErr != nil {
+				d.logger.Warn("failed to clean up jailer directory on error", "path", jailorPath, "err", rmErr)
 			}
 		}
 	}()
@@ -279,9 +281,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	time.Sleep(30 * time.Millisecond)
 
 	// Verify socket is accessible before returning handle
-	socketPath := deriveSocketPath(cfg.TaskDir().Dir, cfg.ID)
 	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		d.logger.Warn("socket not ready after startup", "task_id", cfg.ID, "err", err)
+		socketPath = "" // Clear socket path if not ready; signals will fail gracefully
 	}
 
 	d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
@@ -345,9 +347,9 @@ func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.
 
 			// Step 2: Verify API responds (health check)
 			c := client.New(socketPath)
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err := c.GetMachineConfiguration(ctx)
-			cancel()
+			// SDK's GetMachineConfiguration uses the client's global firecrackerRequestTimeout (default 500ms).
+			// The context parameter is unused here since the SDK method doesn't accept it
+			_, err := c.GetMachineConfiguration(context.Background())
 
 			if err == nil {
 				return nil // Socket ready: file exists and API responds
@@ -391,10 +393,10 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to reattach to executor: %v", err)
 	}
 
-	socketPath := deriveSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID)
+	socketPath := filepath.Join(taskState.TaskConfig.TaskDir().Dir, "jailer", taskState.TaskConfig.ID, "root", "run", "firecracker.socket")
 	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
-		socketPath = ""
+		socketPath = "" // Clear socket path if not ready; signals will fail gracefully
 	}
 
 	h := &taskHandle{
