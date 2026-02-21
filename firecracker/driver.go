@@ -193,7 +193,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
-	_, err := vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
+	_, err = vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
