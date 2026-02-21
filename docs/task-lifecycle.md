@@ -11,9 +11,8 @@
 
 1. Nomad calls `StopTask()` with timeout
 2. Driver attempts graceful shutdown via Firecracker HTTP API: sends Ctrl+Alt+Del to VM
-3. Waits up to `timeout` for VM process to exit after Ctrl+Alt+Del
-4. If VM does not exit within timeout, falls back to executor force-kill
-5. Cleans up Jailer process and allocated resources
+3. Executor enforces the timeout (SIGTERM then SIGKILL if needed)
+4. Cleans up Jailer process and allocated resources
 
 ## Task Recovery (after agent restart)
 

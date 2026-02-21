@@ -190,7 +190,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
-	logPathChroot := paths.LogPathChroot
 	vmCfg := &machine.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
@@ -255,7 +254,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot, "--log-path", logPathChroot)
+	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
 		return nil, nil, err

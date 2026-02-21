@@ -14,8 +14,14 @@ nomad alloc signal -s SIGINT <alloc>
 **Behavior:**
 - Firecracker HTTP API sends Ctrl+Alt+Del to guest
 - Guest OS receives interrupt (typically triggers shutdown sequence)
-- Driver waits up to StopTimeout for graceful exit
-- If timeout expires, forcefully terminates Firecracker process
+- SignalTask returns after requesting shutdown; it does not wait for exit
+
+## StopTask (Nomad stop)
+
+Nomad stop calls `StopTask()` with a timeout. The driver:
+
+- Attempts graceful shutdown via Ctrl+Alt+Del
+- Delegates timeout enforcement to the executor (SIGTERM then SIGKILL if needed)
 
 ## Other Signals
 

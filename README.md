@@ -2,13 +2,6 @@
 
 A Nomad task driver plugin for running Firecracker microVMs.
 
-## Features
-
-- Signal handling (SIGTERM, SIGINT)
-- Task recovery after agent restart
-- Automatic log capture (daemon + guest console)
-- Resource stats
-
 ## Requirements
 
 - [Firecracker](https://github.com/firecracker-microvm/firecracker) and jailer binaries

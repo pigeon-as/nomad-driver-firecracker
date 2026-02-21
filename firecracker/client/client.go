@@ -33,7 +33,7 @@ func (c *Client) GetMachineConfiguration(ctx context.Context) (*models.MachineCo
 	if c == nil || c.client == nil {
 		return nil, errors.New("client is not initialized")
 	}
-	resp, err := c.client.GetMachineConfiguration(ctx)
+	resp, err := c.client.GetMachineConfiguration()
 	if err != nil {
 		return nil, err
 	}
