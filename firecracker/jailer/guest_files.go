@@ -58,6 +58,27 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		targetPath := filepath.Join(jailerRootPath, targetName)
+
+		// Make linking idempotent: handle existing target paths.
+		if targetInfo, err := os.Lstat(targetPath); err == nil {
+			// Target exists; verify it already points to the same file.
+			srcInfo, srcErr := os.Stat(sourcePath)
+			if srcErr != nil {
+				return fmt.Errorf("failed to stat source file %s: %w", sourcePath, srcErr)
+			}
+			if os.SameFile(srcInfo, targetInfo) {
+				// Already correctly linked; nothing to do.
+				continue
+			}
+			// Conflicting existing file; remove and recreate the link.
+			if rmErr := os.Remove(targetPath); rmErr != nil {
+				return fmt.Errorf("failed to remove existing target %s: %w", targetPath, rmErr)
+			}
+		} else if !os.IsNotExist(err) {
+			// An unexpected error occurred while checking the target.
+			return fmt.Errorf("failed to stat target %s: %w", targetPath, err)
+		}
+
 		if err := os.Link(sourcePath, targetPath); err != nil {
 			return fmt.Errorf("failed to hard link %s -> %s: %w", sourcePath, targetPath, err)
 		}

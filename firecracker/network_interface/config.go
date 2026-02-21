@@ -58,7 +58,7 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 	if staticConf.MacAddress != "" {
 		// Validate MAC address format
 		if !macAddressRegex.MatchString(staticConf.MacAddress) {
-			return fmt.Errorf("invalid MAC address format (%s): expected format XX:XX:XX:XX:XX:XX", staticConf.MacAddress)
+			return fmt.Errorf("invalid MAC address format (%s): expected format XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX", staticConf.MacAddress)
 		}
 	}
 	return nil

@@ -308,6 +308,11 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
+	// Detect and configure host's cgroup version if available.
+	if cgroupVersion := detectCgroupVersion(); cgroupVersion != "" {
+		params.CgroupVersion = cgroupVersion
+	}
+
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
@@ -588,6 +593,19 @@ func (d *FirecrackerDriverPlugin) TaskStats(ctx context.Context, taskID string, 
 
 func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drivers.TaskEvent, error) {
 	return d.eventer.TaskEvents(ctx)
+}
+
+// detectCgroupVersion returns the host's cgroup version ("v1" or "v2"), or empty string if unknown.
+func detectCgroupVersion() string {
+	// Check for cgroups v2 unified hierarchy
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err == nil {
+		return "v2"
+	}
+	// Check for cgroups v1 with cpu subsystem
+	if _, err := os.Stat("/sys/fs/cgroup/cpu"); err == nil {
+		return "v1"
+	}
+	return ""
 }
 
 // SignalTask forwards a signal to the Firecracker VMM process.
