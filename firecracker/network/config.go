@@ -12,6 +12,8 @@ type NetworkInterfaces []NetworkInterface
 
 type NetworkInterface struct {
 	StaticConfiguration *StaticNetworkConfiguration `codec:"static_configuration"`
+	InRateLimiter       *models.RateLimiter         `codec:"in_rate_limiter"`
+	OutRateLimiter      *models.RateLimiter         `codec:"out_rate_limiter"`
 }
 
 type StaticNetworkConfiguration struct {
@@ -58,6 +60,12 @@ func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
 			}
 		}
 		m.IfaceID = utils.String(fmt.Sprintf("eth%d", i))
+		if iface.InRateLimiter != nil {
+			m.RxRateLimiter = iface.InRateLimiter
+		}
+		if iface.OutRateLimiter != nil {
+			m.TxRateLimiter = iface.OutRateLimiter
+		}
 		out[i] = m
 	}
 	return out

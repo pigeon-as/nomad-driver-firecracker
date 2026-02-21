@@ -27,6 +27,19 @@ var (
 		}),
 	})
 
+	rateLimiterSpec = hclspec.NewObject(map[string]*hclspec.Spec{
+		"bandwidth": hclspec.NewBlock("bandwidth", false, hclspec.NewObject(map[string]*hclspec.Spec{
+			"refill_time":    hclspec.NewAttr("refill_time", "number", true),
+			"size":           hclspec.NewAttr("size", "number", true),
+			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
+		})),
+		"ops": hclspec.NewBlock("ops", false, hclspec.NewObject(map[string]*hclspec.Spec{
+			"refill_time":    hclspec.NewAttr("refill_time", "number", true),
+			"size":           hclspec.NewAttr("size", "number", true),
+			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
+		})),
+	})
+
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
 		"boot_source": boot.HCLSpec(),
 		"drive":       hclspec.NewBlockList("drive", drive.HCLSpec()),
@@ -35,6 +48,8 @@ var (
 				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
 				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
 			})),
+			"in_rate_limiter":  hclspec.NewBlock("in_rate_limiter", false, rateLimiterSpec),
+			"out_rate_limiter": hclspec.NewBlock("out_rate_limiter", false, rateLimiterSpec),
 		})),
 	})
 
