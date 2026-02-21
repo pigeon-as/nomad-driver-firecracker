@@ -16,7 +16,7 @@ type Paths struct {
 // BuildPaths prepares jailer paths under the task directory and ensures the chroot root exists.
 func BuildPaths(taskDir, taskID string) (*Paths, error) {
 	root := filepath.Join(taskDir, "jailer", taskID, "root")
-	if err := os.MkdirAll(root, 0755); err != nil {
+	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
 

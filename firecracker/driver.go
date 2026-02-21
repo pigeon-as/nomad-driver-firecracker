@@ -193,9 +193,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	}
 	_, err = vm.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
-		// Cleanup vmconfig.json and config directory on failure to avoid orphaned artifacts
+		// Cleanup only vmconfig.json on failure; don't remove the config directory
+		// as it was created by BuildPaths and may be needed by the jailer
 		_ = os.Remove(configPath)
-		_ = os.Remove(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
@@ -294,7 +294,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
-	handle = h
 	return handle, network, nil
 }
 
@@ -417,9 +416,19 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		}
 
 		snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshots", taskID)
-		if err := os.MkdirAll(snapshotDir, 0755); err != nil {
-			d.logger.Warn("failed to create snapshot directory", "task_id", taskID, "err", err)
-			return fmt.Errorf("snapshot dir creation failed: %v", err)
+		if err := os.MkdirAll(snapshotDir, 0700); err != nil {
+			d.logger.Warn("failed to create snapshot directory, attempting to resume", "task_id", taskID, "err", err)
+			if resumeErr := c.Resume(ctx); resumeErr != nil {
+				d.logger.Error(
+					"resume failed after snapshot directory creation error; VM may remain paused and require manual recovery",
+					"task_id", taskID,
+					"snapshot_dir_err", err,
+					"resume_err", resumeErr,
+					"recovery_hint", "try sending SIGCONT again if VM becomes accessible, or destroy and restart the task",
+				)
+				return fmt.Errorf("snapshot dir creation failed (%v) and resume failed (%v); VM may remain paused - try SIGCONT again or destroy task", err, resumeErr)
+			}
+			return fmt.Errorf("snapshot dir creation failed, VM resumed without snapshot: %v", err)
 		}
 
 		memPath := filepath.Join(snapshotDir, "memory.img")
