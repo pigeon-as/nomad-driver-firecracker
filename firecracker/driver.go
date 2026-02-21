@@ -181,7 +181,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath 
 	if len(cfg.Drives) > 0 {
 		req.DrivePaths = make([]string, len(cfg.Drives))
 		for i, drive := range cfg.Drives {
-			if drive != nil {
+			if drive.PathOnHost != "" {
 				req.DrivePaths[i] = drive.PathOnHost
 			}
 		}
@@ -207,7 +207,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath 
 	}
 
 	for i, drive := range cfg.Drives {
-		if drive != nil && drive.PathOnHost != "" {
+		if drive.PathOnHost != "" {
 			if relativeName, ok := linkedPaths[drive.PathOnHost]; ok {
 				cfg.Drives[i].PathOnHost = relativeName
 			}
