@@ -163,6 +163,61 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
+// prepareGuestFiles links guest files (kernel, initrd, drives) into the jailer chroot
+// and updates the task config with relative paths for use in the VM config.
+// This follows the official Firecracker pattern: files must be hard-linked into the
+// chroot because the jailed Firecracker process cannot access host paths.
+func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath string) error {
+	jailorRootDir := filepath.Dir(configPath) // Same as jailer root
+
+	// Build request with guest files to link
+	req := &jailer.LinkGuestFilesRequest{}
+
+	if cfg.BootSource != nil {
+		req.KernelImagePath = cfg.BootSource.KernelImagePath
+		req.InitrdPath = cfg.BootSource.InitrdPath
+	}
+
+	if len(cfg.Drives) > 0 {
+		req.DrivePaths = make([]string, len(cfg.Drives))
+		for i, drive := range cfg.Drives {
+			if drive != nil {
+				req.DrivePaths[i] = drive.PathOnHost
+			}
+		}
+	}
+
+	// Link files into chroot and get relative paths
+	linkedPaths, err := jailer.LinkGuestFilesForTask(jailorRootDir, req)
+	if err != nil {
+		return fmt.Errorf("failed to link guest files into jailer chroot: %w", err)
+	}
+
+	// Update config with relative paths (as seen from inside chroot)
+	if cfg.BootSource != nil && cfg.BootSource.KernelImagePath != "" {
+		if relativeName, ok := linkedPaths[cfg.BootSource.KernelImagePath]; ok {
+			cfg.BootSource.KernelImagePath = relativeName
+		}
+	}
+
+	if cfg.BootSource != nil && cfg.BootSource.InitrdPath != "" {
+		if relativeName, ok := linkedPaths[cfg.BootSource.InitrdPath]; ok {
+			cfg.BootSource.InitrdPath = relativeName
+		}
+	}
+
+	for i, drive := range cfg.Drives {
+		if drive != nil && drive.PathOnHost != "" {
+			if relativeName, ok := linkedPaths[drive.PathOnHost]; ok {
+				cfg.Drives[i].PathOnHost = relativeName
+			}
+		}
+	}
+
+	d.logger.Debug("guest files linked into jailer chroot", "file_count", len(linkedPaths))
+	return nil
+}
+
 func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *drivers.TaskHandle, network *drivers.DriverNetwork, err error) {
 	if _, ok := d.tasks.Get(cfg.ID); ok {
 		return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
@@ -184,6 +239,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
+
+	// Link guest files (kernel, initrd, drives) into jailer chroot and update config with relative paths
+	if err := d.prepareGuestFiles(&driverConfig, configPath); err != nil {
+		_ = os.Remove(configPath)
+		return nil, nil, err
+	}
+
 	vmCfg := &machine.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
