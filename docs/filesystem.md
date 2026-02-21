@@ -39,12 +39,10 @@ The driver automatically handles guest file access via **hard linking**:
    - Provides security: hard links cannot be followed outside the chroot jail
    - More efficient than copies (no space waste)
    - Safer than symlinks (cannot be exploited to escape chroot)
-3. **Relative Paths**: Once linked, paths are converted to relative filenames (e.g., `kernel` instead of `/full/path/kernel`)
-4. **Firecracker Config**: The `vmconfig.json` references files by relative names, which exist inside the chroot
-5. **Hard Link Requirements**:
-   - Source files must exist and be readable by Nomad client
-   - Source and chroot must be on the same filesystem (hard link requirements)
-   - Task user (if specified) should own the linked files for VM access
+3. **Path Validation**: Before hard linking, paths are validated against allocation directory and optional `image_paths` allowlist
+4. **Symlink Resolution**: Symlinks are resolved and re-validated against boundaries before linking
+5. **Relative Paths**: Once linked, paths are converted to relative filenames for use in `vmconfig.json`
+
 
 ### Configuration Best Practices
 

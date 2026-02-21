@@ -231,9 +231,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
 
-	// Link guest files (kernel, initrd, drives) into jailer chroot and update config with relative paths
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
-		// Clean up entire config directory to remove any hard links that may have been created
 		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, err
 	}
@@ -245,7 +243,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
-		// Clean up entire config directory to remove vmconfig.json and any hard links
 		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}

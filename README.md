@@ -52,6 +52,9 @@ In Nomad client configuration:
 ```hcl
 plugin "firecracker" {
   config {
+    # Optional: paths allowed for kernel/initrd/drives (outside allocation directory)
+    image_paths = ["/opt/vm-images"]
+    
     jailer {
       exec_file     = "firecracker"
       jailer_binary = "jailer"

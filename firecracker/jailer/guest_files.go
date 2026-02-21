@@ -18,11 +18,8 @@ type FileLinkRequest struct {
 	TargetName string
 }
 
-// LinkFilesIntoJail creates hard links for guest files inside the jailer chroot.
-// This follows the official Firecracker pattern: files must be hard-linked into the
-// chroot directory because the jailed Firecracker process cannot access host paths.
-//
-// Returns a map of source paths to their target names in the chroot (for use in VM config).
+// LinkFilesIntoJail creates hard links for files into the jailer chroot.
+// Returns a map of source paths to their target names in the chroot.
 func LinkFilesIntoJail(jailerRootPath string, requests []FileLinkRequest) (map[string]string, error) {
 	if len(requests) == 0 {
 		return make(map[string]string), nil
@@ -36,34 +33,25 @@ func LinkFilesIntoJail(jailerRootPath string, requests []FileLinkRequest) (map[s
 	linkedPaths := make(map[string]string)
 
 	for _, req := range requests {
-		// Validate SourcePath is not empty
 		if req.SourcePath == "" {
 			return nil, fmt.Errorf("file link request has empty SourcePath")
 		}
-		// Validate TargetName is not empty
 		if req.TargetName == "" {
 			return nil, fmt.Errorf("file link request for source %q has empty TargetName", req.SourcePath)
 		}
-		// Validate TargetName is just a filename, not a path
 		if filepath.Base(req.TargetName) != req.TargetName {
 			return nil, fmt.Errorf("file link request for source %q has invalid TargetName %q (must be a filename, not a path)", req.SourcePath, req.TargetName)
 		}
 
-		// Verify source file exists and is readable
 		if _, err := os.Stat(req.SourcePath); err != nil {
 			return nil, fmt.Errorf("source file not accessible: %s: %w", req.SourcePath, err)
 		}
 
 		targetPath := filepath.Join(jailerRootPath, req.TargetName)
-
-		// Create hard link
-		// Hard links provide secure isolation: the linked file cannot be followed outside the chroot
-		// This is preferred over symlinks (which can be attacked) or copies (which waste space)
 		if err := os.Link(req.SourcePath, targetPath); err != nil {
 			return nil, fmt.Errorf("failed to create hard link: %s -> %s: %w", req.SourcePath, targetPath, err)
 		}
 
-		// Store the target name (relative path as seen from inside chroot)
 		linkedPaths[req.SourcePath] = req.TargetName
 	}
 
@@ -77,9 +65,7 @@ type LinkGuestFilesRequest struct {
 	DrivePaths      []string
 }
 
-// LinkGuestFilesForTask orchestrates file linking for a task: creates hard links for
-// kernel, initrd, and drives into the jailer chroot root, and returns the relative
-// filenames to use in the VM config.
+// LinkGuestFilesForTask creates hard links for kernel, initrd, and drives into chroot.
 func LinkGuestFilesForTask(jailerRootPath string, req *LinkGuestFilesRequest) (map[string]string, error) {
 	if req == nil {
 		return make(map[string]string), nil
@@ -132,11 +118,7 @@ func LinkGuestFilesForTask(jailerRootPath string, req *LinkGuestFilesRequest) (m
 	return LinkFilesIntoJail(jailerRootPath, linkRequests)
 }
 
-// isAllowedImagePath checks if a path is within the allocation directory or
-// within the configured allowlist of image paths. This prevents tenants from
-// specifying arbitrary host paths.
-// Note: Symlink resolution is performed separately just before hard linking
-// to prevent TOCTOU (Time-of-check-time-of-use) vulnerabilities.
+// isAllowedImagePath reports whether path is within allocDir or allowedPaths.
 func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool {
 	if !filepath.IsAbs(imagePath) {
 		imagePath = filepath.Join(allocDir, imagePath)
@@ -147,12 +129,9 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 		return err == nil && !strings.HasPrefix(rel, "..")
 	}
 
-	// Check if path is under alloc dir
 	if isParent(allocDir, imagePath) {
 		return true
 	}
-
-	// Check allowed paths
 	for _, ap := range allowedPaths {
 		if isParent(ap, imagePath) {
 			return true
@@ -162,32 +141,26 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 	return false
 }
 
-// ValidateAndResolvePath validates, converts, and resolves a single guest file path.
-// Handles: relative→absolute conversion, symlink resolution, and re-validation against allowed paths.
-// Returns resolved path for use in LinkGuestFilesRequest, or error if validation fails.
+// ValidateAndResolvePath validates and resolves a guest file path.
 func ValidateAndResolvePath(path, fieldName, allocDir string, allowedPaths []string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
 
-	// Convert relative→absolute
 	absPath := path
 	if !filepath.IsAbs(absPath) {
 		absPath = filepath.Join(allocDir, absPath)
 	}
 
-	// Validate against allowed paths (catches obvious violations early)
 	if !isAllowedImagePath(allowedPaths, allocDir, absPath) {
 		return "", fmt.Errorf("%s %q is not in allowed paths", fieldName, path)
 	}
 
-	// Resolve symlinks (TOCTOU defense: deferred until just before linking)
 	resolved, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve %s symlink: %w", fieldName, err)
 	}
 
-	// Re-validate resolved target (symlink escape prevention)
 	if !isAllowedImagePath(allowedPaths, allocDir, resolved) {
 		return "", fmt.Errorf("%s symlink target %q is not in allowed paths", fieldName, resolved)
 	}
