@@ -375,13 +375,14 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return
-	case <-d.ctx.Done():
-		return
-	case ch <- result:
-		return
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.ctx.Done():
+			return
+		case ch <- result:
+		}
 	}
 }
 
