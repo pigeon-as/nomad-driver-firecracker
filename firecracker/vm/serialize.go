@@ -73,7 +73,7 @@ func BuildVMConfig(path string, cfg *Config, res *drivers.Resources) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return nil, err
 	}
 	return data, nil

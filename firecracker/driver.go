@@ -446,6 +446,12 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
+	if signal == "SIGTERM" || signal == "SIGINT" {
+		if err := handle.forwardSignal(context.Background(), signal, timeout); err != nil {
+			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
+		}
+	}
+
 	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
