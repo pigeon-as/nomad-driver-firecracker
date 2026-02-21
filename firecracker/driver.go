@@ -340,7 +340,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	time.Sleep(30 * time.Millisecond)
 
 	// Verify socket is accessible before returning handle. Socket is required for VM management.
-	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
+	if err = d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
 		return nil, nil, err
 	}
