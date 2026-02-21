@@ -20,8 +20,8 @@ nomad alloc signal -s SIGINT <alloc>
 
 Nomad stop calls `StopTask()` with a timeout. The driver:
 
-- Attempts graceful shutdown via Ctrl+Alt+Del
-- Delegates timeout enforcement to the executor (SIGTERM then SIGKILL if needed)
+- Attempts graceful shutdown via Ctrl+Alt+Del and waits (up to the StopTask timeout) for the guest VM to exit
+- If the guest is still running when the timeout expires, invokes the executor's shutdown, which may send SIGTERM then SIGKILL as configured
 
 ## Other Signals
 
