@@ -4,28 +4,14 @@ import (
 	"fmt"
 
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
-	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
-
-func HCLSpec() *hclspec.Spec {
-	return hclspec.NewObject(map[string]*hclspec.Spec{
-		"network_interface": hclspec.NewBlockList("network_interface", hclspec.NewObject(map[string]*hclspec.Spec{
-			"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
-				"mac_address":   hclspec.NewAttr("mac_address", "string", false),
-				"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
-			})),
-		})),
-	})
-}
 
 type NetworkInterfaces []NetworkInterface
 
 type NetworkInterface struct {
 	StaticConfiguration *StaticNetworkConfiguration `codec:"static_configuration"`
-	InRateLimiter       *models.RateLimiter         `codec:"in_rate_limiter"`
-	OutRateLimiter      *models.RateLimiter         `codec:"out_rate_limiter"`
 }
 
 type StaticNetworkConfiguration struct {
@@ -72,12 +58,6 @@ func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
 			}
 		}
 		m.IfaceID = utils.String(fmt.Sprintf("eth%d", i))
-		if iface.InRateLimiter != nil {
-			m.RxRateLimiter = iface.InRateLimiter
-		}
-		if iface.OutRateLimiter != nil {
-			m.TxRateLimiter = iface.OutRateLimiter
-		}
 		out[i] = m
 	}
 	return out

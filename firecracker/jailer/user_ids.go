@@ -22,7 +22,7 @@ func ResolveUserIDs(userStr string) (*int, *int, error) {
 	}
 	gid, err := strconv.Atoi(u.Gid)
 	if err != nil {
-		return &uid, nil, err
+		return nil, nil, err
 	}
 	return &uid, &gid, nil
 }

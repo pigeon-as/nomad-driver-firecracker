@@ -180,7 +180,14 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
 	}
 
-	configPath := filepath.Join(cfg.TaskDir().Dir, "vmconfig.json")
+	jailerRoot := filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID, "root")
+	if err := os.MkdirAll(jailerRoot, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create jailer root directory: %v", err)
+	}
+
+	configPath := filepath.Join(jailerRoot, "vmconfig.json")
+	configPathChroot := "/vmconfig.json"
+	logPathChroot := "/firecracker.log"
 	vmCfg := &vm.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
@@ -235,7 +242,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPath, "--log-path", cfg.StderrPath)
+	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot, "--log-path", logPathChroot)
 	if err != nil {
 		pluginClient.Kill()
 		if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {

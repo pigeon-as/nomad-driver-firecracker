@@ -6,16 +6,16 @@ All files for a task live within the allocation directory:
 allocDir/
 ├── alloc/              # Nomad allocation data
 ├── task/               # Task working directory (guest writable)
+│   └── jailer/
+│       └── <task_id>/   # Jailer instance (ID set to task ID)
+│           └── root/    # Jailer chroot
+│               ├── firecracker # Firecracker daemon
+│               ├── run/
+│               │   └── firecracker.socket  # HTTP API socket
+│               ├── dev/
+│               ├── proc/
+│               └── sys/
 ├── secrets/            # Secrets provisioned by Nomad
-├── jailer/
-│   └── <task_id>/       # Jailer instance (ID set to task ID)
-│       └── root/        # Jailer chroot
-│           ├── firecracker # Firecracker daemon
-│           ├── run/
-│           │   └── firecracker.socket  # HTTP API socket
-│           ├── dev/
-│           ├── proc/
-│           └── sys/
 └── snapshot/           # Snapshot files (SIGSTOP)
     ├── memory.img      # VM memory dump
     └── state.vmstate   # VM hardware state
@@ -24,7 +24,7 @@ allocDir/
 ## Jailer
 - Runs Firecracker in chroot for security isolation
 - Binary: configured in plugin config (default: `jailer`)
-- Chroot path: always relative to allocDir (not user-configurable)
+- Chroot path: always relative to taskDir (not user-configurable)
 - Cleanup: automatic on task destroy
 
 ## Drive Files
