@@ -198,7 +198,7 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 	// Update cfg with relative paths from jailer
 	cfg.BootSource.KernelImagePath = guestCfg.Kernel
 	cfg.BootSource.InitrdPath = guestCfg.Initrd
-	for i, drive := range cfg.Drives {
+	for i := range cfg.Drives {
 		cfg.Drives[i].PathOnHost = guestCfg.Drives[i]
 	}
 
