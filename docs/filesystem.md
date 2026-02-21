@@ -39,6 +39,7 @@ allocDir/
 - Tap interfaces: provisioned by Nomad networking
 - Interface configuration: included in initial `vmconfig.json` passed to Firecracker at startup
 - No bridge setup in driver: delegated to Nomad
+- Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)
 
 ## Snapshots
 - Created when task receives SIGSTOP signal (suspend VM with snapshot)
@@ -49,4 +50,3 @@ allocDir/
 - Use case: Fast VM resume via SIGCONT (~hundreds of ms vs ~2+ seconds cold start)
 
 See [VM Snapshots](snapshots.md) for suspend/resume semantics and best practices.
-- Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)

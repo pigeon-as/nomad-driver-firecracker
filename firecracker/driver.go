@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -473,6 +474,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			d.logger.Info("graceful shutdown initiated via Ctrl+Alt+Del", "task_id", taskID)
 			// Wait up to timeout for process to exit after Ctrl+Alt+Del
 			exitChan := make(chan struct{})
+			var once sync.Once
 			go func() {
 				for {
 					select {
@@ -481,7 +483,9 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 						return
 					default:
 						if handle.pluginClient.Exited() {
-							close(exitChan)
+							// Use sync.Once to ensure exitChan is only closed once, preventing
+							// a race condition where both the goroutine and ctx.Done() try to close it
+							once.Do(func() { close(exitChan) })
 							return
 						}
 						time.Sleep(100 * time.Millisecond)
