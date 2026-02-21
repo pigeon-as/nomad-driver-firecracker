@@ -528,8 +528,8 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	}
 
 	snapshotDir := filepath.Join(handle.taskConfig.AllocDir, "snapshot")
-	if err := os.Remove(snapshotDir); err != nil && !os.IsNotExist(err) {
-		d.logger.Debug("snapshot directory not empty or already removed", "path", snapshotDir)
+	if err := os.RemoveAll(snapshotDir); err != nil && !os.IsNotExist(err) {
+		d.logger.Debug("snapshot directory clean up failed", "path", snapshotDir, "err", err)
 	}
 
 	d.tasks.Delete(taskID)

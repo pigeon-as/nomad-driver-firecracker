@@ -15,7 +15,7 @@ import (
 
 var (
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"jailer": hclspec.NewObject(map[string]*hclspec.Spec{
+		"jailer": hclspec.NewBlock("jailer", false, hclspec.NewObject(map[string]*hclspec.Spec{
 			"exec_file": hclspec.NewDefault(
 				hclspec.NewAttr("exec_file", "string", false),
 				hclspec.NewLiteral(`"firecracker"`),
@@ -24,7 +24,7 @@ var (
 				hclspec.NewAttr("jailer_binary", "string", false),
 				hclspec.NewLiteral(`"jailer"`),
 			),
-		}),
+		})),
 	})
 
 	rateLimiterSpec = hclspec.NewObject(map[string]*hclspec.Spec{
