@@ -197,9 +197,9 @@ func ValidateAndResolvePath(path, fieldName, allocDir string, allowedPaths []str
 
 // GuestFileConfig represents the guest file configuration to be prepared
 type GuestFileConfig struct {
-	Kernel  string
-	Initrd  string
-	Drives  []string
+	Kernel string
+	Initrd string
+	Drives []string
 }
 
 // PrepareGuestFilesParams holds parameters for preparing guest files

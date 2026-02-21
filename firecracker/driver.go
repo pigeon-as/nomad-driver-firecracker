@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -164,7 +163,6 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
-
 // prepareGuestFiles orchestrates guest file preparation by delegating to the jailer package.
 // The jailer package handles all path validation, symlink resolution, and file linking.
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
@@ -209,21 +207,21 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 }
 
 func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
-		if _, ok := d.tasks.Get(cfg.ID); ok {
-			return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
-		}
+	if _, ok := d.tasks.Get(cfg.ID); ok {
+		return nil, nil, fmt.Errorf("task with ID %q already started", cfg.ID)
+	}
 
-		var handle *drivers.TaskHandle
-		var err error
+	var handle *drivers.TaskHandle
+	var err error
 
-		var driverConfig TaskConfig
-		if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
-			return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
-		}
+	var driverConfig TaskConfig
+	if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
+	}
 
-		if err := driverConfig.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
-		}
+	if err := driverConfig.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
+	}
 
 	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.ID)
 	if err != nil {
