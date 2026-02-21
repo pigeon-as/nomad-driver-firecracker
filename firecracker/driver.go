@@ -209,7 +209,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		d.logger.Debug("network configuration", "network", driverConfig.NetworkInterfaces)
 	}
-	handle := drivers.NewTaskHandle(taskHandleVersion)
+	handle = drivers.NewTaskHandle(taskHandleVersion)
 	handle.Config = cfg
 
 	executorConfig := &executor.ExecutorConfig{
@@ -392,6 +392,12 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to reattach to executor: %v", err)
 	}
 
+	socketPath := deriveSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID)
+	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
+		d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
+		socketPath = ""
+	}
+
 	h := &taskHandle{
 		exec:         execImpl,
 		pid:          taskState.Pid,
@@ -401,7 +407,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		startedAt:    taskState.StartedAt,
 		exitResult:   &drivers.ExitResult{},
 		logger:       d.logger,
-		socketPath:   deriveSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID),
+		socketPath:   socketPath,
 	}
 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
