@@ -10,112 +10,60 @@ import (
 	"strings"
 )
 
-// FileLinkRequest describes a file to be hard-linked into the jailer chroot
-type FileLinkRequest struct {
-	// SourcePath is the absolute path to the source file on the host
-	SourcePath string
-	// TargetName is the filename (not path) to use inside the chroot
-	TargetName string
-}
-
-// LinkFilesIntoJail creates hard links for files into the jailer chroot.
-// Returns a map of source paths to their target names in the chroot.
-func LinkFilesIntoJail(jailerRootPath string, requests []FileLinkRequest) (map[string]string, error) {
-	if len(requests) == 0 {
-		return make(map[string]string), nil
+// LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
+// If multiple files share the same basename, returns an error.
+func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, drivePaths []string) error {
+	if jailerRootPath == "" {
+		return fmt.Errorf("jailer root path cannot be empty")
 	}
 
 	// Ensure root directory exists
 	if err := os.MkdirAll(jailerRootPath, 0750); err != nil {
-		return nil, fmt.Errorf("failed to create jailer root directory: %w", err)
+		return fmt.Errorf("failed to create jailer root directory: %w", err)
 	}
 
-	linkedPaths := make(map[string]string)
+	// Collect all files to link
+	files := make(map[string]string) // targetName -> sourcePath
 
-	for _, req := range requests {
-		if req.SourcePath == "" {
-			return nil, fmt.Errorf("file link request has empty SourcePath")
+	if kernelPath != "" {
+		name := filepath.Base(kernelPath)
+		if existing, ok := files[name]; ok && existing != kernelPath {
+			return fmt.Errorf("multiple guest files share target name %q", name)
 		}
-		if req.TargetName == "" {
-			return nil, fmt.Errorf("file link request for source %q has empty TargetName", req.SourcePath)
-		}
-		if filepath.Base(req.TargetName) != req.TargetName {
-			return nil, fmt.Errorf("file link request for source %q has invalid TargetName %q (must be a filename, not a path)", req.SourcePath, req.TargetName)
-		}
-
-		if _, err := os.Stat(req.SourcePath); err != nil {
-			return nil, fmt.Errorf("source file not accessible: %s: %w", req.SourcePath, err)
-		}
-
-		targetPath := filepath.Join(jailerRootPath, req.TargetName)
-		if err := os.Link(req.SourcePath, targetPath); err != nil {
-			return nil, fmt.Errorf("failed to create hard link: %s -> %s: %w", req.SourcePath, targetPath, err)
-		}
-
-		linkedPaths[req.SourcePath] = req.TargetName
+		files[name] = kernelPath
 	}
 
-	return linkedPaths, nil
-}
-
-// LinkGuestFilesRequest bundles host paths that need to be linked into the chroot
-type LinkGuestFilesRequest struct {
-	KernelImagePath string
-	InitrdPath      string
-	DrivePaths      []string
-}
-
-// LinkGuestFilesForTask creates hard links for kernel, initrd, and drives into chroot.
-func LinkGuestFilesForTask(jailerRootPath string, req *LinkGuestFilesRequest) (map[string]string, error) {
-	if req == nil {
-		return make(map[string]string), nil
+	if initrdPath != "" {
+		name := filepath.Base(initrdPath)
+		if existing, ok := files[name]; ok && existing != initrdPath {
+			return fmt.Errorf("multiple guest files share target name %q", name)
+		}
+		files[name] = initrdPath
 	}
 
-	linkRequests := make([]FileLinkRequest, 0)
-
-	// Queue kernel image
-	if req.KernelImagePath != "" {
-		linkRequests = append(linkRequests, FileLinkRequest{
-			SourcePath: req.KernelImagePath,
-			TargetName: filepath.Base(req.KernelImagePath),
-		})
-	}
-
-	// Queue initrd if specified
-	if req.InitrdPath != "" {
-		linkRequests = append(linkRequests, FileLinkRequest{
-			SourcePath: req.InitrdPath,
-			TargetName: filepath.Base(req.InitrdPath),
-		})
-	}
-
-	// Queue all drive images
-	for _, drivePath := range req.DrivePaths {
+	for _, drivePath := range drivePaths {
 		if drivePath != "" {
-			linkRequests = append(linkRequests, FileLinkRequest{
-				SourcePath: drivePath,
-				TargetName: filepath.Base(drivePath),
-			})
+			name := filepath.Base(drivePath)
+			if existing, ok := files[name]; ok && existing != drivePath {
+				return fmt.Errorf("multiple guest files share target name %q", name)
+			}
+			files[name] = drivePath
 		}
 	}
 
-	// Detect collisions in target filenames before creating links so we can return
-	// a clear validation error instead of a low-level "file exists" from os.Link
-	nameToSources := make(map[string][]string, len(linkRequests))
-	for _, lr := range linkRequests {
-		if lr.TargetName == "" {
-			continue
+	// Link all files
+	for targetName, sourcePath := range files {
+		if _, err := os.Stat(sourcePath); err != nil {
+			return fmt.Errorf("source file not accessible: %s: %w", sourcePath, err)
 		}
-		nameToSources[lr.TargetName] = append(nameToSources[lr.TargetName], lr.SourcePath)
-	}
-	for name, sources := range nameToSources {
-		if len(sources) > 1 {
-			return nil, fmt.Errorf("multiple guest files share same target name %q: %v", name, sources)
+
+		targetPath := filepath.Join(jailerRootPath, targetName)
+		if err := os.Link(sourcePath, targetPath); err != nil {
+			return fmt.Errorf("failed to hard link %s -> %s: %w", sourcePath, targetPath, err)
 		}
 	}
 
-	// Link all files into chroot
-	return LinkFilesIntoJail(jailerRootPath, linkRequests)
+	return nil
 }
 
 // isAllowedImagePath reports whether path is within allocDir or allowedPaths.
@@ -183,100 +131,63 @@ type PrepareGuestFilesParams struct {
 	ChrootPath   string
 }
 
-// PrepareGuestFiles orchestrates entire guest file preparation: validates paths,
-// resolves symlinks, links files into chroot, and returns config with relative paths.
-// This is the primary entry point for guest file handling from the driver package.
+// PrepareGuestFiles orchestrates guest file preparation: validates and resolves paths,
+// links files into chroot, and updates config with relative filenames.
 func PrepareGuestFiles(params *PrepareGuestFilesParams) error {
 	if params == nil || params.Config == nil {
 		return fmt.Errorf("prepare guest files: invalid parameters")
 	}
 
-	req := &LinkGuestFilesRequest{}
-	resolvedPaths := make(map[string]string) // Maps original → resolved paths
-
-	// Process kernel
+	// Validate and resolve kernel path
+	var kernelPath string
 	if params.Config.Kernel != "" {
-		absPath := params.Config.Kernel
-		if !filepath.IsAbs(absPath) {
-			absPath = filepath.Join(params.AllocDir, absPath)
-		}
-		resolved, err := ValidateAndResolvePath(absPath, "kernel", params.AllocDir, params.AllowedPaths)
+		var err error
+		kernelPath, err = ValidateAndResolvePath(params.Config.Kernel, "kernel", params.AllocDir, params.AllowedPaths)
 		if err != nil {
 			return err
 		}
-		resolvedPaths[params.Config.Kernel] = resolved
-		req.KernelImagePath = resolved
 	}
 
-	// Process initrd
+	// Validate and resolve initrd path
+	var initrdPath string
 	if params.Config.Initrd != "" {
-		absPath := params.Config.Initrd
-		if !filepath.IsAbs(absPath) {
-			absPath = filepath.Join(params.AllocDir, absPath)
-		}
-		resolved, err := ValidateAndResolvePath(absPath, "initrd", params.AllocDir, params.AllowedPaths)
+		var err error
+		initrdPath, err = ValidateAndResolvePath(params.Config.Initrd, "initrd", params.AllocDir, params.AllowedPaths)
 		if err != nil {
 			return err
 		}
-		resolvedPaths[params.Config.Initrd] = resolved
-		req.InitrdPath = resolved
 	}
 
-	// Process drives
+	// Validate and resolve drive paths
+	var drivePaths []string
 	if len(params.Config.Drives) > 0 {
-		req.DrivePaths = make([]string, len(params.Config.Drives))
-		for i, drivePath := range params.Config.Drives {
-			if drivePath != "" {
-				absPath := drivePath
-				if !filepath.IsAbs(absPath) {
-					absPath = filepath.Join(params.AllocDir, absPath)
-				}
-				resolved, err := ValidateAndResolvePath(absPath, fmt.Sprintf("drive[%d]", i), params.AllocDir, params.AllowedPaths)
+		drivePaths = make([]string, len(params.Config.Drives))
+		for i, drivePathCfg := range params.Config.Drives {
+			if drivePathCfg != "" {
+				var err error
+				drivePaths[i], err = ValidateAndResolvePath(drivePathCfg, fmt.Sprintf("drive[%d]", i), params.AllocDir, params.AllowedPaths)
 				if err != nil {
 					return err
 				}
-				resolvedPaths[drivePath] = resolved
-				req.DrivePaths[i] = resolved
 			}
 		}
 	}
 
-	// Link files into chroot and get relative paths
-	linkedPaths, err := LinkGuestFilesForTask(params.ChrootPath, req)
-	if err != nil {
-		return fmt.Errorf("failed to link guest files into jailer chroot: %w", err)
+	// Link all files into chroot
+	if err := LinkGuestFiles(params.ChrootPath, kernelPath, initrdPath, drivePaths); err != nil {
+		return fmt.Errorf("failed to link guest files: %w", err)
 	}
 
-	// Update config with relative paths
-	if params.Config.Kernel != "" {
-		resolved := resolvedPaths[params.Config.Kernel]
-		if resolved == "" {
-			resolved = params.Config.Kernel
-		}
-		if relativeName, ok := linkedPaths[resolved]; ok {
-			params.Config.Kernel = relativeName
-		}
+	// Update config with relative filenames (just the basename)
+	if kernelPath != "" {
+		params.Config.Kernel = filepath.Base(kernelPath)
 	}
-
-	if params.Config.Initrd != "" {
-		resolved := resolvedPaths[params.Config.Initrd]
-		if resolved == "" {
-			resolved = params.Config.Initrd
-		}
-		if relativeName, ok := linkedPaths[resolved]; ok {
-			params.Config.Initrd = relativeName
-		}
+	if initrdPath != "" {
+		params.Config.Initrd = filepath.Base(initrdPath)
 	}
-
-	for i, drivePath := range params.Config.Drives {
+	for i, drivePath := range drivePaths {
 		if drivePath != "" {
-			resolved := resolvedPaths[drivePath]
-			if resolved == "" {
-				resolved = drivePath
-			}
-			if relativeName, ok := linkedPaths[resolved]; ok {
-				params.Config.Drives[i] = relativeName
-			}
+			params.Config.Drives[i] = filepath.Base(drivePath)
 		}
 	}
 

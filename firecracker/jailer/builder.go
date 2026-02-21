@@ -21,22 +21,24 @@ func (c *JailerConfig) BuildArgs(taskDir string, params *BuildParams, fcArgs ...
 		WithExecFile(c.ExecFile).
 		WithChrootBaseDir(chroot)
 
-	if params != nil {
-		if params.ID != "" {
-			builder = builder.WithID(params.ID)
-		}
-		if params.UID != nil {
-			builder = builder.WithUID(*params.UID)
-		}
-		if params.GID != nil {
-			builder = builder.WithGID(*params.GID)
-		}
-		if params.NetNS != "" {
-			builder = builder.WithNetNS(params.NetNS)
-		}
-		if params.CgroupVersion != "" {
-			builder = builder.WithCgroupVersion(params.CgroupVersion)
-		}
+	// Apply optional params if provided
+	if params == nil {
+		params = &BuildParams{}
+	}
+	if params.ID != "" {
+		builder = builder.WithID(params.ID)
+	}
+	if params.UID != nil {
+		builder = builder.WithUID(*params.UID)
+	}
+	if params.GID != nil {
+		builder = builder.WithGID(*params.GID)
+	}
+	if params.NetNS != "" {
+		builder = builder.WithNetNS(params.NetNS)
+	}
+	if params.CgroupVersion != "" {
+		builder = builder.WithCgroupVersion(params.CgroupVersion)
 	}
 
 	if len(fcArgs) > 0 {
