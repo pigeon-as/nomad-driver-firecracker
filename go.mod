@@ -13,6 +13,8 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/hashicorp/nomad v1.11.1
+	github.com/mitchellh/mapstructure v1.5.0
+	github.com/shoenig/test v1.12.2
 )
 
 require (

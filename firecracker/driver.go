@@ -262,6 +262,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	exec, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
 	if err != nil {
+		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
@@ -272,14 +273,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// Guarantee cleanup of executor resources and jailer directory on any error
 	defer func() {
 		if err != nil {
-			pluginClient.Kill()
-			if shutdownErr := exec.Shutdown("", 0); shutdownErr != nil {
-				d.logger.Error("failed to shutdown executor on error", "error", shutdownErr)
+			if pluginClient != nil {
+				pluginClient.Kill()
 			}
-			// Clean up jailer directory on startup failure
-			if rmErr := os.RemoveAll(jailorPath); rmErr != nil {
-				d.logger.Warn("failed to clean up jailer directory on error", "path", jailorPath, "err", rmErr)
+			if exec != nil {
+				// Give 1 second for graceful executor shutdown
+				exec.Shutdown("", 1*time.Second)
 			}
+			// Clean up jailer directory and config on startup failure
+			_ = os.RemoveAll(jailorPath)
 		}
 	}()
 
@@ -376,38 +378,21 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	return handle, driverNetwork, nil
 }
 
-// waitForSocket verifies that Firecracker socket is accessible and API is responding.
-// Follows official Firecracker SDK pattern: first check socket file exists, then verify
-// API responds to a health check. Uses tight 10ms polling interval for quick detection.
 func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
-	// Create client once outside the loop
 	c := client.New(socketPath)
 
 	for {
 		select {
 		case <-ticker.C:
-			// Step 1: Verify socket file exists (required for API connectivity)
-			if _, err := os.Stat(socketPath); err != nil {
-				if time.Now().After(deadline) {
-					return fmt.Errorf("socket file not found after %v: %v", timeout, err)
-				}
-				continue
+			if _, err := c.GetMachineConfiguration(); err == nil {
+				return nil
 			}
-
-			// Step 2: Verify API responds (health check)
-			// SDK's GetMachineConfiguration uses the client's global firecrackerRequestTimeout (default 500ms).
-			_, err := c.GetMachineConfiguration()
-
-			if err == nil {
-				return nil // Socket ready: file exists and API responds
-			}
-
 			if time.Now().After(deadline) {
-				return fmt.Errorf("socket not ready after %v: %v", timeout, err)
+				return fmt.Errorf("firecracker socket not ready after %v", timeout)
 			}
 		case <-d.ctx.Done():
 			return fmt.Errorf("socket verification cancelled")
@@ -513,12 +498,9 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	startTime := time.Now()
-
 	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
-	// and wait for VM to exit before forcing shutdown
 	if signal == "SIGTERM" || signal == "SIGINT" {
-		err := handle.forwardSignal(context.Background(), signal, 5*time.Second)
+		err := handle.forwardSignal(context.Background(), signal, timeout)
 		if err == nil {
 			// Graceful shutdown initiated, wait for VM to exit
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -530,8 +512,8 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			for {
 				select {
 				case <-ctx.Done():
-					// Timeout expired, fall through to force shutdown
-					d.logger.Warn("graceful shutdown timed out, forcing shutdown", "task_id", taskID, "timeout", timeout)
+					// Timeout expired, fall through to forced shutdown
+					d.logger.Debug("graceful shutdown timed out", "task_id", taskID)
 					goto forceShutdown
 				case <-ticker.C:
 					if !handle.IsRunning() {
@@ -541,20 +523,11 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 				}
 			}
 		}
-		d.logger.Debug("graceful shutdown failed, falling back to forced shutdown", "task_id", taskID, "err", err)
 	}
 
 forceShutdown:
-	// Calculate remaining time budget to respect caller's timeout
-	elapsedTime := time.Since(startTime)
-	remainingTime := timeout - elapsedTime
-	if remainingTime <= 0 {
-		// Timeout budget exhausted; attempt immediate shutdown with zero timeout
-		remainingTime = 1 * time.Millisecond
-	}
-
-	// Force shutdown via executor with remaining time budget
-	if err := handle.exec.Shutdown(signal, remainingTime); err != nil {
+	// Force shutdown with whatever timeout remains
+	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
 		}
