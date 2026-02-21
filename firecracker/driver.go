@@ -167,17 +167,12 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 // isAllowedImagePath checks if a path is under the allocation directory or
 // within the configured allowlist of image paths. This prevents tenants from
 // specifying arbitrary host paths.
+// Note: Symlink resolution is performed separately just before hard linking
+// to prevent TOCTOU (Time-of-check-time-of-use) vulnerabilities.
 func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool {
 	if !filepath.IsAbs(imagePath) {
 		imagePath = filepath.Join(allocDir, imagePath)
 	}
-
-	// Resolve symlinks to prevent bypass attacks
-	resolvedPath, err := filepath.EvalSymlinks(imagePath)
-	if err != nil {
-		return false
-	}
-	imagePath = resolvedPath
 
 	isParent := func(parent, path string) bool {
 		rel, err := filepath.Rel(parent, path)
@@ -243,16 +238,33 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 	// Build request with guest files to link
 	req := &jailer.LinkGuestFilesRequest{}
 
+	// Resolve symlinks immediately before linking to prevent TOCTOU attacks
 	if cfg.BootSource != nil {
-		req.KernelImagePath = cfg.BootSource.KernelImagePath
-		req.InitrdPath = cfg.BootSource.InitrdPath
+		if cfg.BootSource.KernelImagePath != "" {
+			resolvedKernel, err := filepath.EvalSymlinks(cfg.BootSource.KernelImagePath)
+			if err != nil {
+				return fmt.Errorf("failed to resolve kernel symlink: %w", err)
+			}
+			req.KernelImagePath = resolvedKernel
+		}
+		if cfg.BootSource.InitrdPath != "" {
+			resolvedInitrd, err := filepath.EvalSymlinks(cfg.BootSource.InitrdPath)
+			if err != nil {
+				return fmt.Errorf("failed to resolve initrd symlink: %w", err)
+			}
+			req.InitrdPath = resolvedInitrd
+		}
 	}
 
 	if len(cfg.Drives) > 0 {
 		req.DrivePaths = make([]string, len(cfg.Drives))
 		for i, drive := range cfg.Drives {
 			if drive.PathOnHost != "" {
-				req.DrivePaths[i] = drive.PathOnHost
+				resolvedDrive, err := filepath.EvalSymlinks(drive.PathOnHost)
+				if err != nil {
+					return fmt.Errorf("failed to resolve drive[%d] symlink: %w", i, err)
+				}
+				req.DrivePaths[i] = resolvedDrive
 			}
 		}
 	}
@@ -466,6 +478,9 @@ func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Create client once outside the loop
+	c := client.New(socketPath)
+
 	for {
 		select {
 		case <-ticker.C:
@@ -478,7 +493,6 @@ func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.
 			}
 
 			// Step 2: Verify API responds (health check)
-			c := client.New(socketPath)
 			// SDK's GetMachineConfiguration uses the client's global firecrackerRequestTimeout (default 500ms).
 			_, err := c.GetMachineConfiguration()
 

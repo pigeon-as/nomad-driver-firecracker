@@ -43,7 +43,7 @@ The driver automatically handles guest file access via **hard linking**:
 4. **Firecracker Config**: The `vmconfig.json` references files by relative names, which exist inside the chroot
 5. **Hard Link Requirements**:
    - Source files must exist and be readable by Nomad client
-   - Source and chroot must be on the same filesystem (hard links requirements)
+   - Source and chroot must be on the same filesystem (hard link requirements)
    - Task user (if specified) should own the linked files for VM access
 
 ### Configuration Best Practices
