@@ -172,6 +172,13 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 		imagePath = filepath.Join(allocDir, imagePath)
 	}
 
+	// Resolve symlinks to prevent bypass attacks
+	resolvedPath, err := filepath.EvalSymlinks(imagePath)
+	if err != nil {
+		return false
+	}
+	imagePath = resolvedPath
+
 	isParent := func(parent, path string) bool {
 		rel, err := filepath.Rel(parent, path)
 		return err == nil && !strings.HasPrefix(rel, "..")
@@ -199,21 +206,17 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
 	jailorRootDir := filepath.Dir(configPath) // Same as jailer root
 
-	// Validate and collect all image paths first
-	imagePaths := make([]string, 0)
-
+	// Validate all image paths
 	if cfg.BootSource != nil {
 		if cfg.BootSource.KernelImagePath != "" {
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.KernelImagePath) {
 				return fmt.Errorf("kernel_image_path %q is not in allowed paths", cfg.BootSource.KernelImagePath)
 			}
-			imagePaths = append(imagePaths, cfg.BootSource.KernelImagePath)
 		}
 		if cfg.BootSource.InitrdPath != "" {
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.InitrdPath) {
 				return fmt.Errorf("initrd_path %q is not in allowed paths", cfg.BootSource.InitrdPath)
 			}
-			imagePaths = append(imagePaths, cfg.BootSource.InitrdPath)
 		}
 	}
 
@@ -222,7 +225,6 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, drive.PathOnHost) {
 				return fmt.Errorf("drive[%d].path_on_host %q is not in allowed paths", i, drive.PathOnHost)
 			}
-			imagePaths = append(imagePaths, drive.PathOnHost)
 		}
 	}
 
@@ -298,7 +300,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 
 	// Link guest files (kernel, initrd, drives) into jailer chroot and update config with relative paths
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
-		_ = os.Remove(configPath)
+		// Clean up entire config directory to remove any hard links that may have been created
+		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, err
 	}
 
@@ -309,9 +312,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	}
 	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
-		// Cleanup only vmconfig.json on failure; don't remove the config directory
-		// as it was created by BuildPaths and may be needed by the jailer
-		_ = os.Remove(configPath)
+		// Clean up entire config directory to remove vmconfig.json and any hard links
+		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
@@ -398,10 +400,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (handle *dr
 	// Firecracker docs recommend 15-30ms before configuration calls
 	time.Sleep(30 * time.Millisecond)
 
-	// Verify socket is accessible before returning handle
+	// Verify socket is accessible before returning handle. Socket is required for VM management.
 	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
-		d.logger.Warn("socket not ready after startup", "task_id", cfg.ID, "err", err)
-		socketPath = "" // Clear socket path if not ready; signals will fail gracefully
+		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
+		return nil, nil, err
 	}
 
 	d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
