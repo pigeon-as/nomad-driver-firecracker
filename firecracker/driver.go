@@ -212,10 +212,18 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.KernelImagePath) {
 				return fmt.Errorf("kernel_image_path %q is not in allowed paths", cfg.BootSource.KernelImagePath)
 			}
+			// Convert relative paths to absolute for hard link creation
+			if !filepath.IsAbs(cfg.BootSource.KernelImagePath) {
+				cfg.BootSource.KernelImagePath = filepath.Join(allocDir, cfg.BootSource.KernelImagePath)
+			}
 		}
 		if cfg.BootSource.InitrdPath != "" {
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, cfg.BootSource.InitrdPath) {
 				return fmt.Errorf("initrd_path %q is not in allowed paths", cfg.BootSource.InitrdPath)
+			}
+			// Convert relative paths to absolute for hard link creation
+			if !filepath.IsAbs(cfg.BootSource.InitrdPath) {
+				cfg.BootSource.InitrdPath = filepath.Join(allocDir, cfg.BootSource.InitrdPath)
 			}
 		}
 	}
@@ -224,6 +232,10 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 		if drive.PathOnHost != "" {
 			if !isAllowedImagePath(d.config.ImagePaths, allocDir, drive.PathOnHost) {
 				return fmt.Errorf("drive[%d].path_on_host %q is not in allowed paths", i, drive.PathOnHost)
+			}
+			// Convert relative paths to absolute for hard link creation
+			if !filepath.IsAbs(drive.PathOnHost) {
+				cfg.Drives[i].PathOnHost = filepath.Join(allocDir, drive.PathOnHost)
 			}
 		}
 	}
