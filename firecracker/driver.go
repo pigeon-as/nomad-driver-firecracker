@@ -366,7 +366,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
-	d.logger.Info("task started successfully", "task_id", cfg.ID)
 
 	// Build network information from configured interfaces
 	var driverNetwork *drivers.DriverNetwork
@@ -415,10 +414,6 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to decode task state from handle: %v", err)
 	}
 	d.logger.Info("recovering task", "task_id", handle.Config.ID, "pid", taskState.Pid)
-	var driverConfig TaskConfig
-	if err := taskState.TaskConfig.DecodeDriverConfig(&driverConfig); err != nil {
-		return fmt.Errorf("failed to decode driver config: %v", err)
-	}
 
 	plugRC, err := structs.ReattachConfigToGoPlugin(taskState.ReattachConfig)
 	if err != nil {
@@ -478,11 +473,13 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		// If process state is nil, we've probably been killed, so return a reasonable exit code
 		if ps == nil {
 			result.ExitCode = -1
+			result.OOMKilled = false
 		}
 	} else {
 		result = &drivers.ExitResult{
-			ExitCode: ps.ExitCode,
-			Signal:   ps.Signal,
+			ExitCode:  ps.ExitCode,
+			Signal:    ps.Signal,
+			OOMKilled: ps.OOMKilled,
 		}
 	}
 
@@ -499,39 +496,25 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Create context for entire graceful shutdown operation
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
-	if signal == "SIGTERM" || signal == "SIGINT" {
-		err := handle.forwardSignal(ctx, signal)
-		if err == nil {
-			// Graceful shutdown initiated, wait for VM to exit
-			ticker := time.NewTicker(500 * time.Millisecond)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					// Timeout expired, fall through to forced shutdown
-					d.logger.Debug("graceful shutdown timed out", "task_id", taskID)
-					goto forceShutdown
-				case <-ticker.C:
-					if !handle.IsRunning() {
-						// VM exited gracefully
-						return nil
-					}
-				}
-			}
+	// Attempt graceful VM shutdown via Ctrl+Alt+Del if socket is available
+	if handle.socketPath != "" {
+		c := client.New(handle.socketPath)
+		if err := c.SendCtrlAltDel(context.Background()); err != nil {
+			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
+		} else {
+			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
 		}
+	} else {
+		d.logger.Debug("socket path not available, forcing shutdown", "task_id", taskID)
 	}
 
-forceShutdown:
-	// Force shutdown - use immediate timeout since budget was already set above
-	if err := handle.exec.Shutdown(signal, 0); err != nil {
+	if err := handle.exec.Shutdown(signal, timeout); err != nil {
+		if handle.pluginClient.Exited() {
+			return nil
+		}
 		return fmt.Errorf("executor Shutdown failed: %v", err)
 	}
+
 	return nil
 }
 
@@ -611,7 +594,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return drivers.ErrTaskNotFound
 	}
 
-	return handle.forwardSignal(context.Background(), signal)
+	return handle.forwardSignal(d.ctx, signal)
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {

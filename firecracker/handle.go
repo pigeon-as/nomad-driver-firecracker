@@ -21,18 +21,20 @@ import (
 )
 
 type taskHandle struct {
+	exec         executor.Executor
+	pid          int
+	pluginClient *plugin.Client
+	logger       hclog.Logger
+	socketPath   string
+
+	// stateLock syncs access to all fields below
 	stateLock sync.RWMutex
 
-	logger       hclog.Logger
-	exec         executor.Executor
-	pluginClient *plugin.Client
-	taskConfig   *drivers.TaskConfig
-	procState    drivers.TaskState
-	startedAt    time.Time
-	completedAt  time.Time
-	exitResult   *drivers.ExitResult
-	pid          int
-	socketPath   string
+	taskConfig  *drivers.TaskConfig
+	procState   drivers.TaskState
+	startedAt   time.Time
+	completedAt time.Time
+	exitResult  *drivers.ExitResult
 }
 
 func (h *taskHandle) TaskStatus() *drivers.TaskStatus {
@@ -65,9 +67,8 @@ func (h *taskHandle) run() {
 	}
 	h.stateLock.Unlock()
 
-	// Use background context so the wait can outlive the driver
-	// if needed (e.g., during driver hot reload)
 	ps, err := h.exec.Wait(context.Background())
+
 	h.stateLock.Lock()
 	defer h.stateLock.Unlock()
 
