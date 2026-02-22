@@ -29,7 +29,7 @@ var (
 	capabilities = &drivers.Capabilities{
 		SendSignals: true,
 		Exec:        false,
-		FSIsolation: drivers.FSIsolationChroot,
+		FSIsolation: drivers.FSIsolationNone,
 		NetIsolationModes: []drivers.NetIsolationMode{
 			drivers.NetIsolationModeHost,
 			drivers.NetIsolationModeGroup,
@@ -39,7 +39,7 @@ var (
 )
 
 type Config struct {
-	// ImagePaths is an optional allowlist of directories from which Firecracker
+	// ImagePaths is a required allowlist of directories from which Firecracker
 	// may load kernel, initrd, and drive images (in addition to the allocation directory).
 	ImagePaths []string             `codec:"image_paths"`
 	Jailer     *jailer.JailerConfig `codec:"jailer"`
@@ -54,6 +54,10 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Jailer.Validate(); err != nil {
 		return err
+	}
+
+	if len(c.ImagePaths) == 0 {
+		return errors.New("image_paths is required: specify at least one directory containing kernel and drive images")
 	}
 
 	// Validate ImagePaths: must be non-empty absolute normalized paths

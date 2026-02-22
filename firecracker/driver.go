@@ -179,14 +179,14 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	jConfig := d.config.Jailer
 
-	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.ID, jConfig.ExecFile)
+	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.AllocID, jConfig.ExecFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create jailer paths: %v", err)
 	}
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
-	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.ID, jConfig.ExecFile)
+	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.AllocID, jConfig.ExecFile)
 
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
 		_ = os.RemoveAll(jailerPath)
@@ -238,7 +238,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}()
 
 	params := &jailer.BuildParams{
-		ID: cfg.ID,
+		ID: cfg.AllocID,
 	}
 
 	if cfg.User != "" {
@@ -259,13 +259,20 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.CgroupVersion = cgroupVersion
 	}
 
-	// Resolve to absolute path to prevent the executor from resolving
+	// Resolve to absolute paths to prevent the executor from resolving
 	// a relative name against the task directory (binary hijack).
 	jailerBin, err := exec.LookPath(jConfig.Bin())
 	if err != nil {
 		err = fmt.Errorf("jailer binary %q not found in PATH: %v", jConfig.Bin(), err)
 		return nil, nil, err
 	}
+
+	fcBin, err := exec.LookPath(jConfig.ExecFile)
+	if err != nil {
+		err = fmt.Errorf("firecracker binary %q not found in PATH: %v", jConfig.ExecFile, err)
+		return nil, nil, err
+	}
+	jConfig.ExecFile = fcBin
 
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
 	if err != nil {
@@ -289,13 +296,17 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
+	d.logger.Debug("jailer command", "cmd", jailerBin, "args", jArgs, "socket", socketPath)
 
-	if err = client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
-		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
-		return nil, nil, err
+	// Best-effort socket readiness check. For long-running VMs this confirms
+	// firecracker is ready for API calls. For fast-exiting VMs (e.g. batch
+	// jobs) the process may finish before the socket responds, which is fine —
+	// the run() goroutine detects completion via the executor.
+	if err := client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
+		d.logger.Warn("firecracker socket not ready, VM may have already exited", "task_id", cfg.ID, "err", err)
+	} else {
+		d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
 	}
-
-	d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
 
 	h := &taskHandle{
 		exec:         execImpl,
@@ -359,7 +370,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to reattach to executor: %v", err)
 	}
 
-	socketPath, err := jailer.FindTaskSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID)
+	socketPath, err := jailer.FindTaskSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.AllocID)
 	if err != nil {
 		d.logger.Warn("failed to discover firecracker socket path after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 		socketPath = ""
@@ -499,7 +510,7 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 			dirs = []string{jailer.TaskDirFromSocketPath(handle.socketPath)}
 		} else {
 			var findErr error
-			dirs, findErr = jailer.FindAllTaskDirs(handle.taskConfig.TaskDir().Dir, handle.taskConfig.ID)
+			dirs, findErr = jailer.FindAllTaskDirs(handle.taskConfig.TaskDir().Dir, handle.taskConfig.AllocID)
 			if findErr != nil {
 				handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
 			}
