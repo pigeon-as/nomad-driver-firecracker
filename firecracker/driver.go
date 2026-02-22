@@ -164,7 +164,6 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	return fp
 }
 
-// queryVersion extracts the version string from a binary's --version output.
 func queryVersion(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -177,8 +176,6 @@ func queryVersion(bin string) string {
 	return versionRegex.FindString(string(out))
 }
 
-// prepareGuestFiles orchestrates guest file preparation by delegating to the jailer package.
-// The jailer package handles all path validation, symlink resolution, and file linking.
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
 	if d.config == nil {
 		return fmt.Errorf("driver configuration not initialized")
@@ -218,7 +215,6 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath,
 		}
 	}
 
-	d.logger.Debug("guest files linked into jailer chroot")
 	return nil
 }
 
@@ -288,11 +284,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
-	// Derive socket path early for potential cleanup and later use.
 	socketPath := jailer.SocketPath(jailerPath)
 
-	// Guarantee cleanup of executor resources and jailer directory on any error.
-	// Shutdown executor before killing plugin client to allow graceful RPC cleanup.
 	defer func() {
 		if err != nil {
 			if execImpl != nil {
@@ -301,7 +294,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			if pluginClient != nil {
 				pluginClient.Kill()
 			}
-			// Clean up jailer directory and config on startup failure
 			_ = os.RemoveAll(jailerPath)
 		}
 	}()
@@ -324,14 +316,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	// Detect and configure host's cgroup version if available.
 	if cgroupVersion := detectCgroupVersion(); cgroupVersion != "" {
 		params.CgroupVersion = cgroupVersion
 	}
 
-	// Resolve jailer binary to an absolute path to prevent task-controlled binary hijack.
-	// A relative name (e.g. "jailer") would be resolved by the executor against the task directory,
-	// allowing a malicious task to place a fake binary there.
+	// Resolve to absolute path to prevent the executor from resolving
+	// a relative name against the task directory (binary hijack).
 	jailerBin, err := exec.LookPath(jConfig.Bin())
 	if err != nil {
 		err = fmt.Errorf("jailer binary %q not found in PATH: %v", jConfig.Bin(), err)
@@ -361,8 +351,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 
-	// Verify socket is accessible before returning handle. Socket is required for VM management.
-	// waitForSocket polls until socket is ready or timeout expires.
 	if err = d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
 		return nil, nil, err
@@ -397,7 +385,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
 
-	// Build network information from configured interfaces
 	var driverNetwork *drivers.DriverNetwork
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		driverNetwork = &drivers.DriverNetwork{
@@ -462,7 +449,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	} else if socketPath != "" {
 		if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
 			d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
-			socketPath = "" // Clear socket path if not ready; signals will fail gracefully
+			socketPath = ""
 		}
 	}
 
@@ -505,7 +492,6 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		result = &drivers.ExitResult{
 			Err: fmt.Errorf("executor: error waiting on process: %v", err),
 		}
-		// If process state is nil, we've probably been killed, so return a reasonable exit code
 		if ps == nil {
 			result.ExitCode = -1
 			result.OOMKilled = false
@@ -531,12 +517,8 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Attempt graceful VM shutdown via Ctrl+Alt+Del if socket is available.
-	// This mirrors the QEMU driver's graceful shutdown via monitor socket:
-	// send the shutdown request, then poll until the process exits or timeout.
+	// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
 	if handle.socketPath != "" {
-		// Use a short timeout for the API call itself to avoid hanging
-		// indefinitely if the socket is broken.
 		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer apiCancel()
 		c := client.New(handle.socketPath)
@@ -544,8 +526,6 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
 		} else {
 			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
-			// Wait for the VM to shut down gracefully before falling back
-			// to exec.Shutdown, matching the QEMU driver pattern.
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			ticker := time.NewTicker(1 * time.Second)
@@ -554,7 +534,6 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 			for {
 				select {
 				case <-ctx.Done():
-					d.logger.Debug("graceful shutdown timed out, forcing shutdown", "task_id", taskID, "timeout", timeout)
 					break out
 				case <-ticker.C:
 					if !handle.IsRunning() {
@@ -597,8 +576,6 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 
 	d.tasks.Delete(taskID)
 
-	// Clean up jailer directory structure.
-	// Prefer socket-derived path and fall back to discovery under taskDir/jailer/*/<taskID>.
 	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
 		var jailerPath string
 		if handle.socketPath != "" {
@@ -644,32 +621,23 @@ func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drive
 	return d.eventer.TaskEvents(ctx)
 }
 
-// detectCgroupVersion returns the host's cgroup version ("1" or "2"), or empty string if unknown.
-// Values match Firecracker jailer --cgroup-version argument (default "1").
+// detectCgroupVersion returns "1" or "2" matching jailer's --cgroup-version flag.
 func detectCgroupVersion() string {
-	// Check for cgroups v2 unified hierarchy
 	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err == nil {
 		return "2"
 	}
-	// Check for cgroups v1 with cpu subsystem
 	if _, err := os.Stat("/sys/fs/cgroup/cpu"); err == nil {
 		return "1"
 	}
 	return ""
 }
 
-// SignalTask forwards a signal to the Firecracker VMM process.
-// SIGTERM and SIGINT trigger graceful VM shutdown via Ctrl+Alt+Del if available,
-// otherwise the signal is forwarded to the executor process.
-// All other signals are forwarded to the Firecracker process.
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
-	// Use a bounded timeout for the API call to avoid blocking indefinitely
-	// if the Firecracker socket is stalled, matching StopTask's approach.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return handle.forwardSignal(ctx, signal)

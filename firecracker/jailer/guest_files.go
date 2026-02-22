@@ -14,7 +14,6 @@ import (
 )
 
 // LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
-// If multiple files share the same basename, returns an error.
 func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, drivePaths []string) error {
 	if jailerRootPath == "" {
 		return fmt.Errorf("jailer root path cannot be empty")
@@ -25,7 +24,6 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		return fmt.Errorf("failed to create jailer root directory: %w", err)
 	}
 
-	// Collect all files to link
 	files := make(map[string]string) // targetName -> sourcePath
 
 	if kernelPath != "" {
@@ -53,7 +51,6 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 			files[name] = drivePath
 		}
 	}
-
 	// Link all files
 	for targetName, sourcePath := range files {
 		if _, err := os.Stat(sourcePath); err != nil {
@@ -62,7 +59,7 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 
 		targetPath := filepath.Join(jailerRootPath, targetName)
 
-		// Make linking idempotent: handle existing target paths.
+		// Make linking idempotent.
 		if targetInfo, err := os.Lstat(targetPath); err == nil {
 			// Target exists; verify it already points to the same file.
 			srcInfo, srcErr := os.Stat(sourcePath)
@@ -70,19 +67,17 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 				return fmt.Errorf("failed to stat source file %s: %w", sourcePath, srcErr)
 			}
 			if os.SameFile(srcInfo, targetInfo) {
-				// Already correctly linked; nothing to do.
 				continue
 			}
-			// Conflicting existing file; remove and recreate the link.
 			if rmErr := os.Remove(targetPath); rmErr != nil {
 				return fmt.Errorf("failed to remove existing target %s: %w", targetPath, rmErr)
 			}
 		} else if !os.IsNotExist(err) {
-			// An unexpected error occurred while checking the target.
 			return fmt.Errorf("failed to stat target %s: %w", targetPath, err)
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
+			// Fall back to copy for cross-device links.
 			if errors.Is(err, syscall.EXDEV) {
 				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
 					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
@@ -148,7 +143,7 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 	return false
 }
 
-// ValidateAndResolvePath validates and resolves a guest file path.
+// ValidateAndResolvePath resolves a guest file path and validates it against allowed paths.
 func ValidateAndResolvePath(path, fieldName, allocDir string, allowedPaths []string) (string, error) {
 	if path == "" {
 		return "", nil
@@ -198,13 +193,10 @@ type PrepareGuestFilesParams struct {
 }
 
 // PrepareGuestFiles validates, resolves, and links guest files into chroot.
-// Returns the resolved relative basenames in GuestFilePaths.
-// The input config is not modified.
 func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error) {
 	if params == nil || params.Config == nil {
 		return nil, fmt.Errorf("prepare guest files: invalid parameters")
 	}
-
 	// Validate and resolve kernel path
 	var kernelPath string
 	if params.Config.Kernel != "" {
@@ -214,7 +206,6 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error)
 			return nil, err
 		}
 	}
-
 	// Validate and resolve initrd path
 	var initrdPath string
 	if params.Config.Initrd != "" {
@@ -224,7 +215,6 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error)
 			return nil, err
 		}
 	}
-
 	// Validate and resolve drive paths
 	var drivePaths []string
 	if len(params.Config.Drives) > 0 {
@@ -239,14 +229,12 @@ func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error)
 			}
 		}
 	}
-
 	// Link all files into chroot
 	if err := LinkGuestFiles(params.ChrootPath, kernelPath, initrdPath, drivePaths); err != nil {
 		return nil, fmt.Errorf("failed to link guest files: %w", err)
 	}
 
-	// Build result with relative basenames - only call Base() when paths are non-empty
-	// (filepath.Base("") returns ".", which would incorrectly set InitrdPath=".")
+	// Build result with relative basenames.
 	var kernelBase, initrdBase string
 	if kernelPath != "" {
 		kernelBase = filepath.Base(kernelPath)

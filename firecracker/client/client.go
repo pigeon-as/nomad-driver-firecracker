@@ -17,7 +17,6 @@ func New(socketPath string) *Client {
 	return &Client{client: fc}
 }
 
-// GetMachineConfiguration is a pre-boot health check for Firecracker API readiness.
 func (c *Client) GetMachineConfiguration() (*models.MachineConfiguration, error) {
 	if c == nil || c.client == nil {
 		return nil, errors.New("client is not initialized")

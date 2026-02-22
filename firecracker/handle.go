@@ -27,7 +27,6 @@ type taskHandle struct {
 	logger       hclog.Logger
 	socketPath   string
 
-	// stateLock syncs access to all fields below
 	stateLock sync.RWMutex
 
 	taskConfig  *drivers.TaskConfig
@@ -84,11 +83,9 @@ func (h *taskHandle) run() {
 	h.completedAt = ps.Time
 }
 
-// forwardSignal forwards a signal to the Firecracker VMM process.
-// Signals SIGTERM and SIGINT trigger graceful VM shutdown via Ctrl+Alt+Del.
-// Other signals are forwarded to the Firecracker process for handling.
+// forwardSignal sends SIGTERM/SIGINT as Ctrl+Alt+Del via the Firecracker API.
+// Other signals are forwarded directly to the executor process.
 func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error {
-	// Parse the signal
 	sig := os.Interrupt
 	if s, ok := signals.SignalLookup[signalName]; ok {
 		sig = s
@@ -96,15 +93,14 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error
 		h.logger.Warn("unknown signal to forward to firecracker, using SIGINT", "signal", signalName, "task_id", h.taskConfig.ID)
 	}
 
-	// For graceful shutdown signals, attempt Ctrl+Alt+Del first via Firecracker API
+	// For SIGTERM/SIGINT, attempt graceful shutdown via Firecracker API
 	if sig == syscall.SIGTERM || sig == syscall.SIGINT {
 		if h.socketPath == "" {
 			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
 		} else {
 			c := client.New(h.socketPath)
 			if err := c.SendCtrlAltDel(ctx); err != nil {
-				h.logger.Debug("graceful shutdown via ctrl+alt+del failed, will forward signal to process", "signal", signalName, "err", err)
-				// Fall through to send signal to executor
+				h.logger.Debug("ctrl+alt+del failed, forwarding signal", "signal", signalName, "err", err)
 			} else {
 				h.logger.Info("graceful shutdown initiated via ctrl+alt+del", "task_id", h.taskConfig.ID)
 				return nil
@@ -112,7 +108,5 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error
 		}
 	}
 
-	// Forward the signal to the executor/VMM process
-	h.logger.Debug("forwarding signal to firecracker process", "signal", signalName, "task_id", h.taskConfig.ID)
 	return h.exec.Signal(sig)
 }

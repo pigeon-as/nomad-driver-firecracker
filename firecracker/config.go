@@ -39,11 +39,8 @@ var (
 )
 
 type Config struct {
-	// ImagePaths is an optional allowlist of paths firecracker is allowed to load images from.
-	// When specified, kernel/initrd/drive images must either be within the allocation directory
-	// or under one of these paths. This provides a secondary security boundary for shared images
-	// stored outside the allocation directory. When empty, only allocation directory paths are allowed.
-	// This follows the same pattern as the QEMU driver's image_paths config.
+	// ImagePaths is an optional allowlist of directories from which Firecracker
+	// may load kernel, initrd, and drive images (in addition to the allocation directory).
 	ImagePaths []string             `codec:"image_paths"`
 	Jailer     *jailer.JailerConfig `codec:"jailer"`
 }
@@ -67,7 +64,7 @@ func (c *Config) Validate() error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("image_paths[%d]: path must be absolute, got %q", i, path)
 		}
-		// Validate path is already normalized
+		// Validate path is normalized
 		normalized := filepath.Clean(path)
 		if path != normalized {
 			return fmt.Errorf("image_paths[%d]: path must be normalized, got %q (should be %q)", i, path, normalized)

@@ -24,7 +24,7 @@ func (c *JailerConfig) BuildArgs(taskDir string, params *BuildParams, fcArgs ...
 		WithExecFile(c.ExecFile).
 		WithChrootBaseDir(chroot)
 
-	// Apply optional params if provided
+	// Apply optional params
 	if params == nil {
 		params = &BuildParams{}
 	}

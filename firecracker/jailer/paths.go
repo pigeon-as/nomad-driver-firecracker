@@ -14,20 +14,17 @@ type Paths struct {
 
 const chrootBaseDirName = "jailer"
 
-// ChrootBaseDir returns the jailer chroot base directory:
-// <task_dir>/jailer
+// ChrootBaseDir returns <task_dir>/jailer.
 func ChrootBaseDir(taskDir string) string {
 	return filepath.Join(taskDir, chrootBaseDirName)
 }
 
-// TaskDir returns the jailer task directory:
-// <task_dir>/jailer/<exec_file_name>/<task_id>
+// TaskDir returns <task_dir>/jailer/<exec_file_name>/<task_id>.
 func TaskDir(taskDir, taskID, execFile string) string {
 	return filepath.Join(ChrootBaseDir(taskDir), filepath.Base(execFile), taskID)
 }
 
-// BuildPaths prepares jailer paths under the task directory and ensures the chroot root exists.
-// The path follows the Firecracker jailer layout: <chroot_base>/<exec_file_name>/<id>/root
+// BuildPaths creates the jailer chroot directory and returns config file paths.
 func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
 	root := filepath.Join(TaskDir(taskDir, taskID, execFile), "root")
 	if err := os.MkdirAll(root, 0700); err != nil {
@@ -40,9 +37,7 @@ func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
 	}, nil
 }
 
-// FindTaskDir discovers a task jailer directory under:
-// <task_dir>/jailer/*/<task_id>
-// It returns an empty string if the directory does not exist.
+// FindTaskDir discovers <task_dir>/jailer/*/<task_id> via glob.
 func FindTaskDir(taskDir, taskID string) (string, error) {
 	pattern := filepath.Join(ChrootBaseDir(taskDir), "*", taskID)
 	matches, err := filepath.Glob(pattern)
@@ -58,7 +53,7 @@ func FindTaskDir(taskDir, taskID string) (string, error) {
 	return matches[0], nil
 }
 
-// SocketPath returns the expected Firecracker API socket path in a task jailer directory.
+// SocketPath returns the Firecracker API socket path within a task jailer directory.
 func SocketPath(taskJailerDir string) string {
 	if taskJailerDir == "" {
 		return ""
@@ -75,8 +70,7 @@ func FindTaskSocketPath(taskDir, taskID string) (string, error) {
 	return SocketPath(taskJailerDir), nil
 }
 
-// TaskDirFromSocketPath derives <task_dir>/jailer/<exec_file_name>/<task_id>
-// from .../root/run/firecracker.socket.
+// TaskDirFromSocketPath derives the task jailer directory from a socket path.
 func TaskDirFromSocketPath(socketPath string) string {
 	if socketPath == "" {
 		return ""

@@ -17,7 +17,6 @@ func (c *JailerConfig) Validate() error {
 	}
 
 	// Defaults are applied via HCLSpec during config decode.
-	// Validate fields are present (should not be empty if defaults applied correctly).
 	if c.ExecFile == "" {
 		return fmt.Errorf("exec_file must be specified")
 	}
