@@ -74,7 +74,44 @@ var (
 	runningRe = regexp.MustCompile(`Status\s+=\s+running`)
 	// deadRe is a regex for checking the "dead" status of a job.
 	deadRe = regexp.MustCompile(`Status\s+=\s+dead`)
+	// allocIDRe extracts allocation IDs from job status output.
+	allocIDRe = regexp.MustCompile(`([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`)
 )
+
+func waitForRunning(t *testing.T, ctx context.Context, job string) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for job %q to start", job)
+		default:
+			out := run(t, ctx, "nomad", "job", "status", job)
+			if runningRe.MatchString(out) || deadRe.MatchString(out) {
+				return
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+func waitForLogs(t *testing.T, ctx context.Context, allocID, task string) string {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		cmd := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return strings.TrimSpace(string(out))
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for logs from task %q: %s", task, string(out))
+		default:
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
 
 // TestPluginStarts verifies the Firecracker driver plugin starts and is healthy.
 func TestPluginStarts(t *testing.T) {
@@ -90,24 +127,38 @@ func TestPluginStarts(t *testing.T) {
 	must.RegexMatch(t, fcRe, status)
 }
 
-// TestBasic_Echo verifies a simple firecracker task runs and produces output.
-// This tests VM launch, guest OS execution, and log capture.
-func TestBasic_Echo(t *testing.T) {
+// TestBasic_Lifecycle verifies a firecracker VM can be started and stopped.
+func TestBasic_Lifecycle(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "echo")()
+	defer purge(t, ctx, "basic")()
 
-	// Run a simple echo job
-	_ = run(t, ctx, "nomad", "job", "run", "./jobs/echo.hcl")
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/basic.hcl")
 
 	// Verify job becomes running
-	jobStatus := run(t, ctx, "nomad", "job", "status", "echo")
+	jobStatus := run(t, ctx, "nomad", "job", "status", "basic")
 	must.RegexMatch(t, runningRe, jobStatus)
 
 	// Stop the job gracefully
-	stopOutput := run(t, ctx, "nomad", "job", "stop", "echo")
+	stopOutput := run(t, ctx, "nomad", "job", "stop", "basic")
 	must.StrContains(t, stopOutput, `finished with status "complete"`)
 
 	// Verify job is stopped
-	stopStatus := run(t, ctx, "nomad", "job", "status", "echo")
+	stopStatus := run(t, ctx, "nomad", "job", "status", "basic")
 	must.RegexMatch(t, deadRe, stopStatus)
+}
+
+// TestBasic_Stdout verifies that a VM writes kernel boot output to stdout.
+func TestBasic_Stdout(t *testing.T) {
+	ctx := setup(t)
+	defer purge(t, ctx, "basic")()
+
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/basic.hcl")
+	waitForRunning(t, ctx, "basic")
+
+	allocs := run(t, ctx, "nomad", "job", "allocs", "-json", "basic")
+	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
+	must.SliceNotEmpty(t, allocID)
+
+	logs := waitForLogs(t, ctx, allocID[1], "firecracker")
+	must.StrContains(t, logs, "Linux")
 }

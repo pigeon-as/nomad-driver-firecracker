@@ -1,26 +1,20 @@
-job "echo" {
+job "basic" {
   datacenters = ["dc1"]
   type        = "batch"
 
-  group "echo" {
-    task "echo-hello" {
+  group "basic" {
+    task "firecracker" {
       driver = "firecracker"
 
       config {
         boot_source {
           kernel_image_path = "/tmp/firecracker-images/vmlinux"
-          boot_args         = "console=ttyS0 reboot=k panic=1 init=/bin/echo hello"
+          boot_args         = "console=ttyS0 reboot=k panic=1"
         }
 
         drive {
           path_on_host   = "/tmp/firecracker-images/rootfs.ext4"
           is_root_device = true
-        }
-
-        network_interface {
-          static_configuration {
-            host_dev_name = "tap0"
-          }
         }
       }
 

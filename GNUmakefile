@@ -29,5 +29,8 @@ hack: test
 	go build -o $(PLUGIN_DIR)/$(PLUGIN_BINARY) .
 	nomad agent -dev -plugin-dir=$(PLUGIN_DIR) -config=$(shell pwd)/e2e/agent.hcl
 
+clean-hack:
+	rm -rf /tmp/firecracker-images
+
 e2e:
 	go test -tags=e2e -count=1 -v ./e2e
