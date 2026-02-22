@@ -27,6 +27,10 @@ Do not invent custom abstractions, add fields to `taskHandle` or `taskStore`, em
 
 Before implementing custom Firecracker-specific logic, check the [firecracker-go-sdk](https://github.com/firecracker-microvm/firecracker-go-sdk) for existing functionality that can be reused.
 
+### Firecracker Documentation
+
+For jailer, host setup, and VM configuration, align with the [official Firecracker docs](https://github.com/firecracker-microvm/firecracker/tree/main/docs) (e.g. [production host setup](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md)).
+
 ### What this means in practice
 
 - Fields on `taskHandle`, `taskStore`, or `TaskState` must correspond to equivalent fields in official drivers (e.g., `socketPath` mirrors QEMU's `monitorPath`).
