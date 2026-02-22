@@ -37,6 +37,12 @@ const (
 	taskHandleVersion = 1
 )
 
+// jailerID returns a globally unique, filesystem-safe identifier for the
+// jailer instance. It follows the Docker driver pattern of "taskName-allocID".
+func jailerID(cfg *drivers.TaskConfig) string {
+	return cfg.Name + "-" + cfg.AllocID
+}
+
 var (
 	pluginInfo = &base.PluginInfoResponse{
 		Type:              base.PluginTypeDriver,
@@ -181,14 +187,16 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	jConfig := d.config.Jailer
 
-	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, cfg.AllocID, jConfig.ExecFile)
+	jID := jailerID(cfg)
+
+	paths, err := jailer.BuildPaths(cfg.TaskDir().Dir, jID, jConfig.ExecFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create jailer paths: %v", err)
 	}
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
-	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.AllocID, jConfig.ExecFile)
+	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, jID, jConfig.ExecFile)
 
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
 		_ = os.RemoveAll(jailerPath)
@@ -260,7 +268,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}()
 
 	params := &jailer.BuildParams{
-		ID: cfg.AllocID,
+		ID: jID,
 	}
 
 	if cfg.User != "" {
@@ -388,7 +396,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to reattach to executor: %v", err)
 	}
 
-	socketPath, err := jailer.FindTaskSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.AllocID)
+	socketPath, err := jailer.FindTaskSocketPath(taskState.TaskConfig.TaskDir().Dir, jailerID(taskState.TaskConfig))
 	if err != nil {
 		d.logger.Warn("failed to discover firecracker socket path after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 		socketPath = ""
@@ -536,7 +544,7 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 			dirs = []string{jailer.TaskDirFromSocketPath(handle.socketPath)}
 		} else {
 			var findErr error
-			dirs, findErr = jailer.FindAllTaskDirs(handle.taskConfig.TaskDir().Dir, handle.taskConfig.AllocID)
+			dirs, findErr = jailer.FindAllTaskDirs(handle.taskConfig.TaskDir().Dir, jailerID(handle.taskConfig))
 			if findErr != nil {
 				handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
 			}
