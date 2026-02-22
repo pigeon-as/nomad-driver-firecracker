@@ -72,8 +72,6 @@ Required fields:
 Optional fields:
 - `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
 
-Note: Guest IP configuration is handled inside the VM (cloud-init, systemd-networkd, or custom init).
-
 See [example job](example/example.nomad) for complete configuration.
 
 ## Documentation
