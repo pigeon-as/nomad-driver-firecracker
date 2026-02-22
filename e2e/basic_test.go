@@ -147,6 +147,25 @@ func TestBasic_Lifecycle(t *testing.T) {
 	must.RegexMatch(t, deadRe, stopStatus)
 }
 
+// TestBridge_AllocGetsIP verifies that a VM in bridge network mode gets an
+// allocated IP address, confirming TAP + TC redirect setup works.
+func TestBridge_AllocGetsIP(t *testing.T) {
+	ctx := setup(t)
+	defer purge(t, ctx, "bridge")()
+
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/bridge.hcl")
+	waitForRunning(t, ctx, "bridge")
+
+	allocs := run(t, ctx, "nomad", "job", "allocs", "-json", "bridge")
+	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
+	must.SliceNotEmpty(t, allocID)
+
+	// Check that the allocation has a network status with an IP address.
+	allocStatus := run(t, ctx, "nomad", "alloc", "status", allocID[1])
+	ipRe := regexp.MustCompile(`\d+\.\d+\.\d+\.\d+`)
+	must.RegexMatch(t, ipRe, allocStatus)
+}
+
 // TestBasic_Stdout verifies that a VM writes kernel boot output to stdout.
 func TestBasic_Stdout(t *testing.T) {
 	ctx := setup(t)

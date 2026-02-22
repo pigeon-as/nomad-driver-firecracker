@@ -8,6 +8,7 @@ A Nomad task driver plugin for running Firecracker microVMs.
 
 - [Firecracker](https://github.com/firecracker-microvm/firecracker) and jailer binaries
 - Linux kernel and root filesystem images for guest VMs
+- [CNI plugins](https://github.com/containernetworking/plugins) at `/opt/cni/bin/` (required for bridge networking)
 
 ## Quick Start
 
