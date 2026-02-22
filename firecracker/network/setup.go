@@ -4,8 +4,10 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
+	"syscall"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -88,7 +90,9 @@ func findVeth() (netlink.Link, error) {
 }
 
 // createTap creates and brings up a TAP device with the given name and MTU.
-// Firecracker does not support multiqueue tap devices, so Queues is set to 1.
+// If the TAP already exists (e.g. task restart within the same allocation),
+// it is reused. Firecracker does not support multiqueue tap devices, so
+// Queues is set to 1.
 func createTap(name string, mtu int) (netlink.Link, error) {
 	attrs := netlink.NewLinkAttrs()
 	attrs.Name = name
@@ -101,7 +105,15 @@ func createTap(name string, mtu int) (netlink.Link, error) {
 	}
 
 	if err := netlink.LinkAdd(tap); err != nil {
-		return nil, fmt.Errorf("create tap device: %w", err)
+		if !errors.Is(err, syscall.EEXIST) {
+			return nil, fmt.Errorf("create tap device: %w", err)
+		}
+		// TAP already exists from a previous task attempt — reuse it.
+		link, lookupErr := netlink.LinkByName(name)
+		if lookupErr != nil {
+			return nil, fmt.Errorf("find existing tap %q: %w", name, lookupErr)
+		}
+		return link, nil
 	}
 
 	if err := netlink.LinkSetMTU(tap, mtu); err != nil {
@@ -135,7 +147,9 @@ func addRedirects(veth, tap netlink.Link) error {
 			},
 		}
 		if err := netlink.QdiscAdd(qdisc); err != nil {
-			return fmt.Errorf("add ingress qdisc to %s: %w", link.Attrs().Name, err)
+			if !errors.Is(err, syscall.EEXIST) {
+				return fmt.Errorf("add ingress qdisc to %s: %w", link.Attrs().Name, err)
+			}
 		}
 	}
 
@@ -158,8 +172,10 @@ func addRedirects(veth, tap netlink.Link) error {
 				},
 			},
 		}); err != nil {
-			return fmt.Errorf("add redirect %s → %s: %w",
-				pair[0].Attrs().Name, pair[1].Attrs().Name, err)
+			if !errors.Is(err, syscall.EEXIST) {
+				return fmt.Errorf("add redirect %s → %s: %w",
+					pair[0].Attrs().Name, pair[1].Attrs().Name, err)
+			}
 		}
 	}
 
