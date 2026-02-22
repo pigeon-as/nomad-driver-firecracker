@@ -6,9 +6,6 @@ job "firecracker-example" {
 
     network {
       mode = "bridge"
-      port "http" {
-        to = 80
-      }
     }
 
     task "example-vm" {
@@ -31,13 +28,6 @@ job "firecracker-example" {
           path_on_host = "/path/to/data.img"
           is_root_device = false
           is_read_only = true
-        }
-
-        network_interface {
-          static_configuration {
-            host_dev_name = "tap0"
-            mac_address   = "02:fc:00:00:00:01"
-          }
         }
       }
 

@@ -14,6 +14,11 @@ A Nomad task driver plugin for running Firecracker microVMs.
 ```hcl
 job "example" {
   group "vm-group" {
+
+    network {
+      mode = "bridge"
+    }
+
     task "vm" {
       driver = "firecracker"
       
@@ -27,13 +32,6 @@ job "example" {
           path_on_host   = "/path/to/rootfs.ext4"
           is_root_device = true
           is_read_only   = false
-        }
-        
-        network_interface {
-          static_configuration {
-            host_dev_name = "tap0"
-            mac_address   = "02:fc:00:00:00:01"
-          }
         }
       }
       
@@ -71,7 +69,7 @@ Required fields:
 - `drive` - at least one root drive with `is_root_device = true`
 
 Optional fields:
-- `network_interface` - tap-based networking (host device + optional MAC)
+- `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
 
 Note: Guest IP configuration is handled inside the VM (cloud-init, systemd-networkd, or custom init).
 

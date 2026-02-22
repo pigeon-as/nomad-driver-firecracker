@@ -23,6 +23,8 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
 )
 
 const (
@@ -191,6 +193,25 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
 		_ = os.RemoveAll(jailerPath)
 		return nil, nil, err
+	}
+
+	// When Nomad provides network isolation (bridge/group mode) and the user
+	// didn't manually configure network interfaces, create a TAP device with
+	// TC redirect inside the namespace for seamless bridge networking.
+	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
+		tapName, tapErr := network.SetupTapRedirect(cfg.NetworkIsolation.Path)
+		if tapErr != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
+		}
+		driverConfig.NetworkInterfaces = network_interface.NetworkInterfaces{
+			{
+				StaticConfiguration: &network_interface.StaticNetworkConfiguration{
+					HostDevName: tapName,
+				},
+			},
+		}
+		d.logger.Debug("created tap for bridge networking", "tap", tapName, "netns", cfg.NetworkIsolation.Path)
 	}
 
 	vmCfg := &machine.Config{
