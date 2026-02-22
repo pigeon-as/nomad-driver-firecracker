@@ -41,6 +41,14 @@ func (c *Client) SendCtrlAltDel(ctx context.Context) error {
 	return err
 }
 
+func (c *Client) PutMmds(ctx context.Context, metadata interface{}) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	_, err := c.client.PutMmds(ctx, metadata)
+	return err
+}
+
 func WaitForReady(ctx context.Context, socketPath string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(10 * time.Millisecond)

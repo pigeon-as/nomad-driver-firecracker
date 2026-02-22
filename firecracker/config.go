@@ -24,6 +24,7 @@ var (
 		"boot_source":       boot_source.HCLSpec(),
 		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", network_interface.HCLSpec()),
+		"metadata":          hclspec.NewAttr("metadata", "string", false),
 	})
 
 	capabilities = &drivers.Capabilities{
@@ -82,6 +83,7 @@ type TaskConfig struct {
 	BootSource        *boot_source.BootSource             `codec:"boot_source"`
 	Drives            []drive.Drive                       `codec:"drive"`
 	NetworkInterfaces network_interface.NetworkInterfaces `codec:"network_interface"`
+	Metadata          string                              `codec:"metadata"`
 }
 
 func (c *TaskConfig) Validate() error {

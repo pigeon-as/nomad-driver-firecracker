@@ -5,6 +5,7 @@ package firecracker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/drivers/shared/executor"
@@ -226,6 +228,16 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
+
+	// When metadata is provided and network interfaces are configured,
+	// enable MMDS on the first network interface so the guest can query
+	// instance metadata at 169.254.169.254 (Firecracker default).
+	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) > 0 {
+		vmCfg.MmdsConfig = &models.MmdsConfig{
+			NetworkInterfaces: []string{"eth0"},
+		}
+	}
+
 	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
 		_ = os.RemoveAll(jailerPath)
@@ -338,6 +350,23 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		d.logger.Warn("firecracker socket not ready, VM may have already exited", "task_id", cfg.ID, "err", err)
 	} else {
 		d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
+
+		// If the user provided MMDS metadata, push it to the running VM.
+		if driverConfig.Metadata != "" {
+			var metadata interface{}
+			if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
+				d.logger.Error("failed to parse MMDS metadata JSON", "task_id", cfg.ID, "err", jsonErr)
+			} else {
+				mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
+				defer mmdsCancel()
+				c := client.New(socketPath)
+				if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
+					d.logger.Error("failed to set MMDS metadata", "task_id", cfg.ID, "err", mmdsErr)
+				} else {
+					d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
+				}
+			}
+		}
 	}
 
 	h := &taskHandle{
