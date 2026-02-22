@@ -4,7 +4,7 @@ client {
   enabled = true
 }
 
-plugin "firecracker" {
+plugin "nomad-driver-firecracker" {
   config {
     jailer {
       exec_file     = "firecracker"

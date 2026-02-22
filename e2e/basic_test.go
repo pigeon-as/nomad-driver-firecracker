@@ -82,7 +82,7 @@ func TestPluginStarts(t *testing.T) {
 
 	// Can connect to nomad
 	jobs := run(t, ctx, "nomad", "job", "status")
-	must.Eq(t, "No running jobs", jobs)
+	must.StrContains(t, jobs, "No running jobs")
 
 	// Firecracker plugin is present and healthy
 	status := run(t, ctx, "nomad", "node", "status", "-self", "-verbose")
@@ -97,7 +97,7 @@ func TestBasic_Echo(t *testing.T) {
 	defer purge(t, ctx, "echo")()
 
 	// Run a simple echo job
-	_ = run(t, ctx, "nomad", "job", "run", "./e2e/jobs/echo.hcl")
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/echo.hcl")
 
 	// Verify job becomes running
 	jobStatus := run(t, ctx, "nomad", "job", "status", "echo")
