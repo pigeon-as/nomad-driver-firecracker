@@ -577,22 +577,20 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 	d.tasks.Delete(taskID)
 
 	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
-		var jailerPath string
+		var dirs []string
 		if handle.socketPath != "" {
-			jailerPath = jailer.TaskDirFromSocketPath(handle.socketPath)
+			dirs = []string{jailer.TaskDirFromSocketPath(handle.socketPath)}
 		} else {
 			var findErr error
-			jailerPath, findErr = jailer.FindTaskDir(handle.taskConfig.TaskDir().Dir, handle.taskConfig.ID)
+			dirs, findErr = jailer.FindAllTaskDirs(handle.taskConfig.TaskDir().Dir, handle.taskConfig.ID)
 			if findErr != nil {
 				handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
-				jailerPath = ""
 			}
 		}
-		if jailerPath == "" {
-			return nil
-		}
-		if err := os.RemoveAll(jailerPath); err != nil {
-			handle.logger.Warn("failed to clean up jailer directory", "path", jailerPath, "err", err)
+		for _, dir := range dirs {
+			if err := os.RemoveAll(dir); err != nil {
+				handle.logger.Warn("failed to clean up jailer directory", "path", dir, "err", err)
+			}
 		}
 	}
 

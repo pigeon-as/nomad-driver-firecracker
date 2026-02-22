@@ -37,12 +37,22 @@ func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
 	}, nil
 }
 
-// FindTaskDir discovers <task_dir>/jailer/*/<task_id> via glob.
-func FindTaskDir(taskDir, taskID string) (string, error) {
+// FindAllTaskDirs discovers all <task_dir>/jailer/*/<task_id> directories via glob.
+func FindAllTaskDirs(taskDir, taskID string) ([]string, error) {
 	pattern := filepath.Join(ChrootBaseDir(taskDir), "*", taskID)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return "", fmt.Errorf("invalid jailer path pattern %q: %w", pattern, err)
+		return nil, fmt.Errorf("invalid jailer path pattern %q: %w", pattern, err)
+	}
+	return matches, nil
+}
+
+// FindTaskDir discovers a single <task_dir>/jailer/*/<task_id> via glob.
+// Returns an error if multiple directories match.
+func FindTaskDir(taskDir, taskID string) (string, error) {
+	matches, err := FindAllTaskDirs(taskDir, taskID)
+	if err != nil {
+		return "", err
 	}
 	if len(matches) == 0 {
 		return "", nil
