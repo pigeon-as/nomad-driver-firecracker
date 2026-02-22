@@ -53,26 +53,23 @@ type TaskState struct {
 }
 
 type FirecrackerDriverPlugin struct {
-	eventer        *eventer.Eventer
-	config         *Config
-	nomadConfig    *base.ClientDriverConfig
-	tasks          *taskStore
-	ctx            context.Context
-	signalShutdown context.CancelFunc
-	logger         hclog.Logger
+	eventer     *eventer.Eventer
+	config      *Config
+	nomadConfig *base.ClientDriverConfig
+	tasks       *taskStore
+	ctx         context.Context
+	logger      hclog.Logger
 }
 
-func NewPlugin(logger hclog.Logger) drivers.DriverPlugin {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewPlugin(ctx context.Context, logger hclog.Logger) drivers.DriverPlugin {
 	logger = logger.Named(pluginName)
 
 	return &FirecrackerDriverPlugin{
-		eventer:        eventer.NewEventer(ctx, logger),
-		config:         &Config{},
-		tasks:          newTaskStore(),
-		ctx:            ctx,
-		signalShutdown: cancel,
-		logger:         logger,
+		eventer: eventer.NewEventer(ctx, logger),
+		config:  &Config{},
+		tasks:   newTaskStore(),
+		ctx:     ctx,
+		logger:  logger,
 	}
 }
 
@@ -335,11 +332,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 
-	// Give Firecracker time to create socket and be ready for API calls
-	// Firecracker docs recommend 15-30ms before configuration calls
-	time.Sleep(30 * time.Millisecond)
-
 	// Verify socket is accessible before returning handle. Socket is required for VM management.
+	// waitForSocket polls with exponential backoff, no additional sleep needed.
 	if err = d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
 		return nil, nil, err
@@ -481,6 +475,10 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		result = &drivers.ExitResult{
 			Err: fmt.Errorf("executor: error waiting on process: %v", err),
 		}
+		// If process state is nil, we've probably been killed, so return a reasonable exit code
+		if ps == nil {
+			result.ExitCode = -1
+		}
 	} else {
 		result = &drivers.ExitResult{
 			ExitCode: ps.ExitCode,
@@ -488,14 +486,10 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 		}
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-d.ctx.Done():
-			return
-		case ch <- result:
-		}
+	select {
+	case <-ctx.Done():
+	case <-d.ctx.Done():
+	case ch <- result:
 	}
 }
 

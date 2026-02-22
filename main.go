@@ -4,6 +4,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker"
 
 	"github.com/hashicorp/go-hclog"
@@ -14,6 +16,6 @@ func main() {
 	plugins.Serve(factory)
 }
 
-func factory(log hclog.Logger) interface{} {
-	return firecracker.NewPlugin(log)
+func factory(ctx context.Context, log hclog.Logger) interface{} {
+	return firecracker.NewPlugin(ctx, log)
 }

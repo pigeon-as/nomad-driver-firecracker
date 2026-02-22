@@ -1,6 +1,8 @@
 package jailer
 
 import (
+	"fmt"
+
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 )
 
@@ -10,16 +12,17 @@ type JailerConfig struct {
 }
 
 func (c *JailerConfig) Validate() error {
-
 	if c == nil {
 		return nil
 	}
 
+	// Defaults are applied via HCLSpec during config decode.
+	// Validate fields are present (should not be empty if defaults applied correctly).
 	if c.ExecFile == "" {
-		c.ExecFile = "firecracker"
+		return fmt.Errorf("exec_file must be specified")
 	}
 	if c.JailerBinary == "" {
-		c.JailerBinary = "jailer"
+		return fmt.Errorf("jailer_binary must be specified")
 	}
 
 	return nil

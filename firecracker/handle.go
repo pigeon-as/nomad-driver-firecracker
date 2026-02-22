@@ -65,6 +65,8 @@ func (h *taskHandle) run() {
 	}
 	h.stateLock.Unlock()
 
+	// Use background context so the wait can outlive the driver
+	// if needed (e.g., during driver hot reload)
 	ps, err := h.exec.Wait(context.Background())
 	h.stateLock.Lock()
 	defer h.stateLock.Unlock()
