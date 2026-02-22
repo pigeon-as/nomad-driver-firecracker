@@ -20,8 +20,9 @@ nomad alloc signal -s SIGINT <alloc>
 
 Nomad stop calls `StopTask()` with a timeout. The driver:
 
-- Attempts graceful shutdown via Ctrl+Alt+Del and waits (up to the StopTask timeout) for the guest VM to exit
-- If the guest is still running when the timeout expires, invokes the executor's shutdown, which may send SIGTERM then SIGKILL as configured
+- Attempts graceful shutdown via Ctrl+Alt+Del and polls (up to the timeout) for the VM to exit
+- If the VM is still running when the timeout expires, the remaining time budget is passed to the executor's `Shutdown`, which sends SIGTERM then SIGKILL
+- This follows a single-deadline approach matching the Docker driver pattern
 
 ## Other Signals
 
@@ -29,4 +30,4 @@ Other signals (SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, etc.) are forwarded to the Fir
 
 ## SIGKILL
 
-Not supported via HTTP API. Use `nomad alloc stop -no-shutdown <alloc>` for force-kill.
+Not supported via HTTP API. Use `nomad alloc stop -no-shutdown-delay <alloc>` to skip the graceful period, or `nomad job stop -purge <job>` for force-kill.

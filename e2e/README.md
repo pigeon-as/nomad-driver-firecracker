@@ -7,6 +7,7 @@ Runs Firecracker VMs via Nomad and checks basic lifecycle.
 - Linux with KVM (`/dev/kvm`)
 - `firecracker` and `jailer` binaries in `$PATH`
 - `nomad` binary in `$PATH`
+- [CNI reference plugins](https://developer.hashicorp.com/nomad/docs/deploy#install-cni-reference-plugins) installed at `/opt/cni/bin/` (required for bridge networking tests)
 - Root privileges (jailer requirement)
 
 

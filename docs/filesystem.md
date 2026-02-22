@@ -8,7 +8,7 @@ All files for a task live within the allocation directory:
 ├── <task_name>/            # Task directory (cfg.TaskDir().Dir)
 │   └── jailer/
 │       └── <exec_file_name>/   # Firecracker binary name (from --exec-file)
-│           └── <alloc_id>/     # Jailer instance (ID set to alloc ID)
+│           └── <taskName>-<allocID>/  # Jailer instance (unique per task)
 │               └── root/       # Jailer chroot (security boundary)
 │                   ├── firecracker          # Firecracker daemon
 │                   ├── vmconfig.json        # VM configuration
@@ -64,7 +64,7 @@ config {
 ```
 
 ## Network
-- Tap interfaces: provisioned by Nomad networking
+- **Bridge mode**: When Nomad provides network isolation (bridge/group mode) and no manual network interfaces are configured, the driver creates a TAP device (`tap0`) inside the network namespace with bidirectional TC redirect filters between the veth and TAP. This is idempotent across task restarts.
+- **Host mode**: No TAP setup; manual `network_interface` configuration is required
 - Interface configuration: included in initial `vmconfig.json` passed to Firecracker at startup
-- No bridge setup in driver: delegated to Nomad
 - Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)
