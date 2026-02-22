@@ -1,6 +1,6 @@
 log_level = "TRACE"
 
-plugin "firecracker" {
+plugin "nomad-driver-firecracker" {
   config {
     jailer {
       exec_file     = "/usr/local/bin/firecracker"

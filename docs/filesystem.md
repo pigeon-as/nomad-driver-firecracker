@@ -8,8 +8,9 @@ allocDir/
 ├── task/               # Task working directory (guest writable)
 │   └── <task_name>/    # Task instance directory
 │       └── jailer/
-│           └── <task_id>/   # Jailer instance (ID set to task ID)
-│               └── root/    # Jailer chroot (security boundary)
+│           └── <exec_file_name>/  # Firecracker binary name (from --exec-file)
+│               └── <task_id>/     # Jailer instance (ID set to task ID)
+│                   └── root/      # Jailer chroot (security boundary)
 │                   ├── firecracker          # Firecracker daemon
 │                   ├── vmconfig.json        # VM configuration
 │                   ├── kernel               # Kernel image (hard-linked)

@@ -50,7 +50,7 @@ job "example" {
 
 In Nomad client configuration:
 ```hcl
-plugin "firecracker" {
+plugin "nomad-driver-firecracker" {
   config {
     # Optional: paths allowed for kernel/initrd/drives (outside allocation directory)
     image_paths = ["/opt/vm-images"]

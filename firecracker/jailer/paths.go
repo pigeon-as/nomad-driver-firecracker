@@ -12,8 +12,10 @@ type Paths struct {
 }
 
 // BuildPaths prepares jailer paths under the task directory and ensures the chroot root exists.
-func BuildPaths(taskDir, taskID string) (*Paths, error) {
-	root := filepath.Join(taskDir, "jailer", taskID, "root")
+// The path follows the Firecracker jailer layout: <chroot_base>/<exec_file_name>/<id>/root
+func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
+	execFileName := filepath.Base(execFile)
+	root := filepath.Join(taskDir, "jailer", execFileName, taskID, "root")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
