@@ -281,24 +281,22 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		LogLevel: "debug",
 	}
 
-	exec, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
+	execImpl, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
 	if err != nil {
 		_ = os.RemoveAll(filepath.Dir(configPath))
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
 	// Derive socket path early for potential cleanup and later use.
-	// Follows Firecracker jailer layout: <chroot_base>/<exec_file_name>/<id>/root
-	execFileName := filepath.Base(jConfig.ExecFile)
-	jailerPath := filepath.Join(cfg.TaskDir().Dir, "jailer", execFileName, cfg.ID)
-	socketPath := filepath.Join(jailerPath, "root", "run", "firecracker.socket")
+	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.ID, jConfig.ExecFile)
+	socketPath := jailer.SocketPath(jailerPath)
 
 	// Guarantee cleanup of executor resources and jailer directory on any error.
 	// Shutdown executor before killing plugin client to allow graceful RPC cleanup.
 	defer func() {
 		if err != nil {
-			if exec != nil {
-				exec.Shutdown("", 1*time.Second)
+			if execImpl != nil {
+				execImpl.Shutdown("", 1*time.Second)
 			}
 			if pluginClient != nil {
 				pluginClient.Kill()
@@ -331,22 +329,31 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.CgroupVersion = cgroupVersion
 	}
 
+	// Resolve jailer binary to an absolute path to prevent task-controlled binary hijack.
+	// A relative name (e.g. "jailer") would be resolved by the executor against the task directory,
+	// allowing a malicious task to place a fake binary there.
+	jailerBin, err := exec.LookPath(jConfig.Bin())
+	if err != nil {
+		err = fmt.Errorf("jailer binary %q not found in PATH: %v", jConfig.Bin(), err)
+		return nil, nil, err
+	}
+
 	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
 		return nil, nil, err
 	}
 	execCmd := &executor.ExecCommand{
-		Cmd:        jConfig.Bin(),
+		Cmd:        jailerBin,
 		Args:       jArgs,
 		Env:        cfg.EnvList(),
 		TaskDir:    cfg.TaskDir().Dir,
 		StdoutPath: cfg.StdoutPath,
 		StderrPath: cfg.StderrPath,
-		Resources:  cfg.Resources,
+		Resources:  cfg.Resources.Copy(),
 	}
 
-	ps, err := exec.Launch(execCmd)
+	ps, err := execImpl.Launch(execCmd)
 	if err != nil {
 		err = fmt.Errorf("failed to launch command with executor: %v", err)
 		return nil, nil, err
@@ -364,7 +371,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
 
 	h := &taskHandle{
-		exec:         exec,
+		exec:         execImpl,
 		pid:          ps.Pid,
 		pluginClient: pluginClient,
 		taskConfig:   cfg,
@@ -447,12 +454,15 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return fmt.Errorf("failed to reattach to executor: %v", err)
 	}
 
-	// Reconstruct socket path using jailer layout: <chroot_base>/<exec_file_name>/<id>/root
-	execFileName := filepath.Base(d.config.Jailer.ExecFile)
-	socketPath := filepath.Join(taskState.TaskConfig.TaskDir().Dir, "jailer", execFileName, taskState.TaskConfig.ID, "root", "run", "firecracker.socket")
-	if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
-		d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
-		socketPath = "" // Clear socket path if not ready; signals will fail gracefully
+	socketPath, err := jailer.FindTaskSocketPath(taskState.TaskConfig.TaskDir().Dir, taskState.TaskConfig.ID)
+	if err != nil {
+		d.logger.Warn("failed to discover firecracker socket path after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
+		socketPath = ""
+	} else if socketPath != "" {
+		if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
+			d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
+			socketPath = "" // Clear socket path if not ready; signals will fail gracefully
+		}
 	}
 
 	h := &taskHandle{
@@ -586,10 +596,23 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 
 	d.tasks.Delete(taskID)
 
-	// Clean up jailer directory structure using correct jailer layout
+	// Clean up jailer directory structure.
+	// Prefer socket-derived path and fall back to discovery under taskDir/jailer/*/<taskID>.
 	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
-		execFileName := filepath.Base(d.config.Jailer.ExecFile)
-		jailerPath := filepath.Join(handle.taskConfig.TaskDir().Dir, "jailer", execFileName, handle.taskConfig.ID)
+		var jailerPath string
+		if handle.socketPath != "" {
+			jailerPath = jailer.TaskDirFromSocketPath(handle.socketPath)
+		} else {
+			var findErr error
+			jailerPath, findErr = jailer.FindTaskDir(handle.taskConfig.TaskDir().Dir, handle.taskConfig.ID)
+			if findErr != nil {
+				handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
+				jailerPath = ""
+			}
+		}
+		if jailerPath == "" {
+			return nil
+		}
 		if err := os.RemoveAll(jailerPath); err != nil {
 			handle.logger.Warn("failed to clean up jailer directory", "path", jailerPath, "err", err)
 		}
