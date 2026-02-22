@@ -245,7 +245,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
 
-	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
+	d.logger.Info("starting task", "task_id", cfg.ID, "alloc_id", cfg.AllocID)
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		d.logger.Debug("network configuration", "network", driverConfig.NetworkInterfaces)
 	}
@@ -355,17 +355,17 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		if driverConfig.Metadata != "" {
 			var metadata interface{}
 			if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
-				d.logger.Error("failed to parse MMDS metadata JSON", "task_id", cfg.ID, "err", jsonErr)
-			} else {
-				mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
-				defer mmdsCancel()
-				c := client.New(socketPath)
-				if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
-					d.logger.Error("failed to set MMDS metadata", "task_id", cfg.ID, "err", mmdsErr)
-				} else {
-					d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
-				}
+				err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
+				return nil, nil, err
 			}
+			mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
+			defer mmdsCancel()
+			c := client.New(socketPath)
+			if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
+				err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
+				return nil, nil, err
+			}
+			d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
 		}
 	}
 

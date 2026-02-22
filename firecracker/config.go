@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -122,5 +123,12 @@ func (c *TaskConfig) Validate() error {
 			return err
 		}
 	}
+
+	if c.Metadata != "" {
+		if !json.Valid([]byte(c.Metadata)) {
+			return errors.New("metadata must be valid JSON")
+		}
+	}
+
 	return nil
 }

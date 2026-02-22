@@ -40,7 +40,11 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 
 	if _, err := os.Stat("/dev/kvm"); err != nil {
 		fp.Health = drivers.HealthStateUndetected
-		fp.HealthDescription = "/dev/kvm not available: KVM is required for Firecracker"
+		if os.IsNotExist(err) {
+			fp.HealthDescription = "/dev/kvm not available: KVM is required for Firecracker"
+		} else {
+			fp.HealthDescription = fmt.Sprintf("error accessing /dev/kvm: %v", err)
+		}
 		return fp
 	}
 
