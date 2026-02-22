@@ -611,7 +611,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 		return drivers.ErrTaskNotFound
 	}
 
-	return handle.forwardSignal(context.Background(), signal, 30*time.Second)
+	return handle.forwardSignal(context.Background(), signal)
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {

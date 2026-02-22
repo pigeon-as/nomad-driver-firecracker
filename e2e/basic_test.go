@@ -26,10 +26,10 @@ import (
 const timeout = 30 * time.Second
 
 func pause() {
-	if ci := os.Getenv("CI"); ci == "" {
+	time.Sleep(2 * time.Second)
+	if ci := os.Getenv("CI"); ci != "" {
 		time.Sleep(500 * time.Millisecond)
 	}
-	time.Sleep(2 * time.Second)
 }
 
 func setup(t *testing.T) context.Context {
