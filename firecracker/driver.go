@@ -266,8 +266,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// Derive socket path early for potential cleanup and later use
-	jailorPath := filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID)
-	socketPath := filepath.Join(jailorPath, "root", "run", "firecracker.socket")
+	jailerPath := filepath.Join(cfg.TaskDir().Dir, "jailer", cfg.ID)
+	socketPath := filepath.Join(jailerPath, "root", "run", "firecracker.socket")
 
 	// Guarantee cleanup of executor resources and jailer directory on any error
 	defer func() {
@@ -280,7 +280,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 				exec.Shutdown("", 1*time.Second)
 			}
 			// Clean up jailer directory and config on startup failure
-			_ = os.RemoveAll(jailorPath)
+			_ = os.RemoveAll(jailerPath)
 		}
 	}()
 
@@ -333,7 +333,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 
 	// Verify socket is accessible before returning handle. Socket is required for VM management.
-	// waitForSocket polls with exponential backoff, no additional sleep needed.
+	// waitForSocket polls until socket is ready or timeout expires.
 	if err = d.waitForSocket(socketPath, 5*time.Second); err != nil {
 		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
 		return nil, nil, err
@@ -494,20 +494,20 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 }
 
 func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration, signal string) error {
-	start := time.Now()
 	handle, ok := d.tasks.Get(taskID)
 	if !ok {
 		return drivers.ErrTaskNotFound
 	}
 
+	// Create context for entire graceful shutdown operation
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	// For SIGTERM/SIGINT, attempt graceful VM shutdown via Ctrl+Alt+Del first
 	if signal == "SIGTERM" || signal == "SIGINT" {
-		err := handle.forwardSignal(context.Background(), signal, timeout)
+		err := handle.forwardSignal(ctx, signal)
 		if err == nil {
 			// Graceful shutdown initiated, wait for VM to exit
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-
 			ticker := time.NewTicker(500 * time.Millisecond)
 			defer ticker.Stop()
 
@@ -528,18 +528,10 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 forceShutdown:
-	// Force shutdown with remaining timeout
-	remaining := timeout - time.Since(start)
-	if remaining < 0 {
-		remaining = 0
-	}
-	if err := handle.exec.Shutdown(signal, remaining); err != nil {
-		if handle.pluginClient.Exited() {
-			return nil
-		}
+	// Force shutdown - use immediate timeout since budget was already set above
+	if err := handle.exec.Shutdown(signal, 0); err != nil {
 		return fmt.Errorf("executor Shutdown failed: %v", err)
 	}
-
 	return nil
 }
 
@@ -565,9 +557,9 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 
 	// Clean up jailer directory structure
 	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
-		jailorPath := filepath.Join(handle.taskConfig.TaskDir().Dir, "jailer", handle.taskConfig.ID)
-		if err := os.RemoveAll(jailorPath); err != nil {
-			handle.logger.Warn("failed to clean up jailer directory", "path", jailorPath, "err", err)
+		jailerPath := filepath.Join(handle.taskConfig.TaskDir().Dir, "jailer", handle.taskConfig.ID)
+		if err := os.RemoveAll(jailerPath); err != nil {
+			handle.logger.Warn("failed to clean up jailer directory", "path", jailerPath, "err", err)
 		}
 	}
 

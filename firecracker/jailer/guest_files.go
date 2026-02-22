@@ -129,7 +129,11 @@ func isAllowedImagePath(allowedPaths []string, allocDir, imagePath string) bool 
 
 	isParent := func(parent, path string) bool {
 		rel, err := filepath.Rel(parent, path)
-		return err == nil && !strings.HasPrefix(rel, "..")
+		if err != nil {
+			return false
+		}
+		// Reject only actual parent references (".." or "../...")
+		return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 	}
 
 	if isParent(allocDir, imagePath) {

@@ -86,7 +86,7 @@ func (h *taskHandle) run() {
 // forwardSignal forwards a signal to the Firecracker VMM process.
 // Signals SIGTERM and SIGINT trigger graceful VM shutdown via Ctrl+Alt+Del.
 // Other signals are forwarded to the Firecracker process for handling.
-func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, timeout time.Duration) error {
+func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error {
 	// Parse the signal
 	sig := os.Interrupt
 	if s, ok := signals.SignalLookup[signalName]; ok {
@@ -100,11 +100,8 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, timeo
 		if h.socketPath == "" {
 			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
 		} else {
-			timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-
 			c := client.New(h.socketPath)
-			if err := c.SendCtrlAltDel(timeoutCtx); err != nil {
+			if err := c.SendCtrlAltDel(ctx); err != nil {
 				h.logger.Debug("graceful shutdown via ctrl+alt+del failed, will forward signal to process", "signal", signalName, "err", err)
 				// Fall through to send signal to executor
 			} else {
