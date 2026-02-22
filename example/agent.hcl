@@ -1,10 +1,12 @@
-# Copyright IBM Corp. 2019, 2025
-# SPDX-License-Identifier: MPL-2.0
-
 log_level = "TRACE"
 
-plugin "hello-driver" {
+plugin "nomad-driver-firecracker" {
   config {
-    shell = "bash"
+    image_paths = ["/opt/vm-images"]
+
+    jailer {
+      exec_file     = "/usr/bin/firecracker"
+      jailer_binary = "/usr/bin/jailer"
+    }
   }
 }

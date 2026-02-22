@@ -4,19 +4,18 @@
 package main
 
 import (
-	// TODO: update the path below to match your own repository
-	"github.com/hashicorp/nomad-skeleton-driver-plugin/hello"
+	"context"
+
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/plugins"
 )
 
 func main() {
-	// Serve the plugin
-	plugins.Serve(factory)
+	plugins.ServeCtx(factory)
 }
 
-// factory returns a new instance of a nomad driver plugin
-func factory(log hclog.Logger) interface{} {
-	return hello.NewPlugin(log)
+func factory(ctx context.Context, log hclog.Logger) interface{} {
+	return firecracker.NewPlugin(ctx, log)
 }

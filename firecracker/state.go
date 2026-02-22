@@ -1,15 +1,12 @@
 // Copyright IBM Corp. 2019, 2025
 // SPDX-License-Identifier: MPL-2.0
 
-package hello
+package firecracker
 
 import (
 	"sync"
 )
 
-// taskStore provides a mechanism to store and retrieve
-// task handles given a string identifier. The ID should
-// be unique per task
 type taskStore struct {
 	store map[string]*taskHandle
 	lock  sync.RWMutex

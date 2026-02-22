@@ -1,0 +1,109 @@
+package jailer
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestTaskDir(t *testing.T) {
+	got := TaskDir("/alloc/task", "abc-123", "/usr/bin/firecracker")
+	want := filepath.Join("/alloc/task", "jailer", "firecracker", "abc-123")
+	if got != want {
+		t.Errorf("TaskDir = %q, want %q", got, want)
+	}
+}
+
+func TestBuildPaths(t *testing.T) {
+	tmp := t.TempDir()
+
+	paths, err := BuildPaths(tmp, "task-1", "firecracker")
+	if err != nil {
+		t.Fatalf("BuildPaths: %v", err)
+	}
+
+	root := filepath.Join(tmp, "jailer", "firecracker", "task-1", "root")
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("root dir not created: %v", err)
+	}
+	if paths.ConfigPathHost != filepath.Join(root, "vmconfig.json") {
+		t.Errorf("ConfigPathHost = %q", paths.ConfigPathHost)
+	}
+	if paths.ConfigPathChroot != "/vmconfig.json" {
+		t.Errorf("ConfigPathChroot = %q", paths.ConfigPathChroot)
+	}
+}
+
+func TestSocketPathRoundtrip(t *testing.T) {
+	jailerDir := "/alloc/task/jailer/firecracker/task-1"
+	sock := SocketPath(jailerDir)
+	got := TaskDirFromSocketPath(sock)
+	if got != jailerDir {
+		t.Errorf("TaskDirFromSocketPath(SocketPath(%q)) = %q, want %q", jailerDir, got, jailerDir)
+	}
+}
+
+func TestSocketPath_Empty(t *testing.T) {
+	if got := SocketPath(""); got != "" {
+		t.Errorf("SocketPath(\"\") = %q, want \"\"", got)
+	}
+	if got := TaskDirFromSocketPath(""); got != "" {
+		t.Errorf("TaskDirFromSocketPath(\"\") = %q, want \"\"", got)
+	}
+}
+
+func TestFindTaskDir(t *testing.T) {
+	tmp := t.TempDir()
+
+	// No match
+	dir, err := FindTaskDir(tmp, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "" {
+		t.Errorf("expected empty, got %q", dir)
+	}
+
+	// Single match
+	taskDir := filepath.Join(tmp, "jailer", "firecracker", "task-1")
+	if err := os.MkdirAll(taskDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dir, err = FindTaskDir(tmp, "task-1")
+	if err != nil {
+		t.Fatalf("FindTaskDir: %v", err)
+	}
+	if dir != taskDir {
+		t.Errorf("FindTaskDir = %q, want %q", dir, taskDir)
+	}
+
+	// Multiple matches → error
+	dup := filepath.Join(tmp, "jailer", "other-binary", "task-1")
+	if err := os.MkdirAll(dup, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = FindTaskDir(tmp, "task-1")
+	if err == nil {
+		t.Fatal("expected error for multiple matches")
+	}
+}
+
+func TestFindAllTaskDirs(t *testing.T) {
+	tmp := t.TempDir()
+
+	dir1 := filepath.Join(tmp, "jailer", "firecracker", "task-1")
+	dir2 := filepath.Join(tmp, "jailer", "other", "task-1")
+	for _, d := range []string{dir1, dir2} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dirs, err := FindAllTaskDirs(tmp, "task-1")
+	if err != nil {
+		t.Fatalf("FindAllTaskDirs: %v", err)
+	}
+	if len(dirs) != 2 {
+		t.Fatalf("expected 2 dirs, got %d", len(dirs))
+	}
+}

@@ -1,90 +1,84 @@
-Nomad Skeleton Driver Plugin
-==========
+# Nomad Firecracker Driver
 
-Skeleton project for
-[Nomad task driver plugins](https://www.nomadproject.io/docs/drivers/index.html).
+> **Warning:** This driver is experimental and not yet ready for production use.
 
-This project is intended for bootstrapping development of a new task driver
-plugin.
+A Nomad task driver plugin for running Firecracker microVMs.
 
-- Website: [https://www.nomadproject.io](https://www.nomadproject.io)
-- Mailing list: [Google Groups](http://groups.google.com/group/nomad-tool)
+## Requirements
 
-Requirements
--------------------
+- [Firecracker](https://github.com/firecracker-microvm/firecracker) and jailer binaries
+- Linux kernel and root filesystem images for guest VMs
+- [CNI plugins](https://github.com/containernetworking/plugins) at `/opt/cni/bin/` (required for bridge networking)
 
-- [Go](https://golang.org/doc/install) v1.18 or later (to compile the plugin)
-- [Nomad](https://www.nomadproject.io/downloads.html) v0.9+ (to run the plugin)
+## Quick Start
 
-Building the Skeleton Plugin
--------------------
+```hcl
+job "example" {
+  group "vm-group" {
 
-[Generate](https://github.com/hashicorp/nomad-skeleton-driver-plugin/generate)
-a new repository in your account from this template by clicking the `Use this
-template` button above.
+    network {
+      mode = "bridge"
+    }
 
-Clone the repository somewhere in your computer. This project uses
-[Go modules](https://blog.golang.org/using-go-modules) so you will need to set
-the environment variable `GO111MODULE=on` or work outside your `GOPATH` if it
-is set to `auto` or not declared.
-
-```sh
-$ git clone git@github.com:<ORG>/<REPO>git
+    task "vm" {
+      driver = "firecracker"
+      
+      config {
+        boot_source {
+          kernel_image_path = "/path/to/kernel"
+          boot_args         = "console=ttyS0"
+        }
+        
+        drive {
+          path_on_host   = "/path/to/rootfs.ext4"
+          is_root_device = true
+          is_read_only   = false
+        }
+      }
+      
+      resources {
+        cpu    = 1024
+        memory = 512
+      }
+    }
+  }
+}
 ```
 
-Enter the plugin directory and update the paths in `go.mod` and `main.go` to
-match your repository path.
+## Configuration
 
-```diff
-// go.mod
+### Plugin Config
 
-- module github.com/hashicorp/nomad-skeleton-driver-plugin
-+ module github.com/<ORG>/<REPO>
-...
+In Nomad client configuration:
+```hcl
+plugin "nomad-driver-firecracker" {
+  config {
+    image_paths = ["/opt/vm-images"]
+    
+    jailer {
+      exec_file     = "firecracker"
+      jailer_binary = "jailer"
+    }
+  }
+}
 ```
 
-```diff
-// main.go
+### Task Config
 
-package main
+Required fields:
+- `boot_source` - kernel image and boot args
+- `drive` - at least one root drive with `is_root_device = true`
 
-import (
-    log "github.com/hashicorp/go-hclog"
--   "github.com/hashicorp/nomad-skeleton-driver-plugin/hello"
-+.  "github.com/<REPO>/<ORG>/hello"
-...
+Optional fields:
+- `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
 
-```
+See [example job](example/example.nomad) for complete configuration.
 
-> [!IMPORTANT]
-> If your plugin imports `hashicorp/nomad` package, you may want to consult
-> Nomad's top-level
-> [`go.mod`](https://github.com/hashicorp/nomad/blob/main/go.mod) file to see if
-> there aren't any "replace" directives that your package may also need.
+## Documentation
 
-Build the skeleton plugin.
-
-```sh
-$ make build
-```
-
-## Deploying Driver Plugins in Nomad
-
-The initial version of the skeleton is a simple task that outputs a greeting.
-You can try it out by starting a Nomad agent and running the job provided in
-the `example` folder:
-
-```sh
-$ make build
-$ nomad agent -dev -config=./example/agent.hcl -plugin-dir=$(pwd)
-
-# in another shell
-$ nomad run ./example/example.nomad
-$ nomad logs <ALLOCATION ID>
-```
-
-Code Organization
--------------------
-Follow the comments marked with a `TODO` tag to implement your driver's logic.
-For more information check the
-[Nomad documentation on plugins](https://www.nomadproject.io/docs/internals/plugins/index.html).
+- [Task Lifecycle](docs/task-lifecycle.md) - Start, stop, and recovery behavior
+- [Signal Handling](docs/signals.md) - Signal forwarding and graceful shutdown
+- [Networking](docs/networking.md) - Bridge mode, host mode, and guest configuration
+- [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
+- [Logging](docs/logs.md) - Daemon logs and guest console output
+- [Troubleshooting](docs/troubleshooting.md) - Debugging common issues

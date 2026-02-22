@@ -1,0 +1,65 @@
+package machine
+
+import (
+	"testing"
+
+	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/hashicorp/nomad/plugins/drivers"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
+)
+
+func TestToSDK_NilConfig(t *testing.T) {
+	_, err := ToSDK(nil, nil)
+	if err == nil {
+		t.Fatal("expected error for nil config")
+	}
+}
+
+func TestToSDK_MissingKernel(t *testing.T) {
+	cfg := &Config{
+		BootSource: &boot_source.BootSource{},
+		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+	}
+	_, err := ToSDK(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for missing kernel_image_path")
+	}
+}
+
+func TestToSDK_CPUShareConversion(t *testing.T) {
+	cfg := &Config{
+		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+	}
+
+	tests := []struct {
+		shares   int64
+		wantVCPU int64
+	}{
+		{500, 1},  // < 1024 → rounds to 1
+		{1024, 1}, // exactly 1024 → 1
+		{2048, 2}, // 2048 → 2
+		{3000, 3}, // 3000+1023 = 4023 / 1024 = 3
+	}
+
+	for _, tt := range tests {
+		res := &drivers.Resources{
+			NomadResources: &structs.AllocatedTaskResources{
+				Cpu:    structs.AllocatedCpuResources{CpuShares: tt.shares},
+				Memory: structs.AllocatedMemoryResources{MemoryMB: 256},
+			},
+		}
+
+		vmCfg, err := ToSDK(cfg, res)
+		if err != nil {
+			t.Fatalf("ToSDK with shares=%d: %v", tt.shares, err)
+		}
+		if vmCfg.MachineConfig == nil || vmCfg.MachineConfig.VcpuCount == nil {
+			t.Fatalf("MachineConfig.VcpuCount is nil for shares=%d", tt.shares)
+		}
+		if got := *vmCfg.MachineConfig.VcpuCount; got != tt.wantVCPU {
+			t.Errorf("shares=%d: vcpu_count = %d, want %d", tt.shares, got, tt.wantVCPU)
+		}
+	}
+}
