@@ -213,8 +213,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	handle.Config = cfg
 
 	executorConfig := &executor.ExecutorConfig{
-		LogFile:  filepath.Join(cfg.TaskDir().Dir, "executor.out"),
+		LogFile:  filepath.Join(cfg.TaskDir().Dir, fmt.Sprintf("%s-executor.out", cfg.Name)),
 		LogLevel: "debug",
+		Compute:  d.nomadConfig.Topology.Compute(),
 	}
 
 	execImpl, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
@@ -228,7 +229,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	defer func() {
 		if err != nil {
 			if execImpl != nil {
-				execImpl.Shutdown("", 1*time.Second)
+				execImpl.Shutdown("", 0)
 			}
 			if pluginClient != nil {
 				pluginClient.Kill()
