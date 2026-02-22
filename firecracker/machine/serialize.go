@@ -29,6 +29,8 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	}
 	if len(cfg.NetworkInterfaces) > 0 {
 		vmCfg.NetworkInterfaces = cfg.NetworkInterfaces.ToSDK()
+	} else {
+		vmCfg.NetworkInterfaces = []*models.NetworkInterface{}
 	}
 	if res != nil && res.NomadResources != nil {
 		mc := &models.MachineConfiguration{}
