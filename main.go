@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	plugins.Serve(factory)
+	plugins.ServeCtx(factory)
 }
 
 func factory(ctx context.Context, log hclog.Logger) interface{} {
