@@ -338,14 +338,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.tasks.Set(cfg.ID, h)
 	go h.run()
 
-	var driverNetwork *drivers.DriverNetwork
-	if len(driverConfig.NetworkInterfaces) > 0 {
-		driverNetwork = &drivers.DriverNetwork{
-			PortMap: map[string]int{},
-		}
-	}
-
-	return handle, driverNetwork, nil
+	return handle, nil, nil
 }
 
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
