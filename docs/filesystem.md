@@ -3,14 +3,13 @@
 All files for a task live within the allocation directory:
 
 ```
-allocDir/
-├── alloc/              # Nomad allocation data
-├── task/               # Task working directory (guest writable)
-│   └── <task_name>/    # Task instance directory
-│       └── jailer/
-│           └── <exec_file_name>/  # Firecracker binary name (from --exec-file)
-│               └── <alloc_id>/    # Jailer instance (ID set to alloc ID)
-│                   └── root/      # Jailer chroot (security boundary)
+<alloc_dir>/
+├── alloc/                  # Nomad shared allocation data
+├── <task_name>/            # Task directory (cfg.TaskDir().Dir)
+│   └── jailer/
+│       └── <exec_file_name>/   # Firecracker binary name (from --exec-file)
+│           └── <alloc_id>/     # Jailer instance (ID set to alloc ID)
+│               └── root/       # Jailer chroot (security boundary)
 │                   ├── firecracker          # Firecracker daemon
 │                   ├── vmconfig.json        # VM configuration
 │                   ├── kernel               # Kernel image (hard-linked)
@@ -21,7 +20,7 @@ allocDir/
 │                   ├── dev/
 │                   ├── proc/
 │                   └── sys/
-└── secrets/            # Secrets provisioned by Nomad
+└── secrets/                # Secrets provisioned by Nomad
 ```
 
 ## Jailer
