@@ -442,6 +442,9 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 	// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
+	// Track elapsed time so exec.Shutdown gets only the remaining budget,
+	// matching Docker's single-deadline approach.
+	gracefulStart := time.Now()
 	if handle.socketPath != "" {
 		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer apiCancel()
@@ -470,7 +473,12 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		d.logger.Debug("socket path not available, forcing shutdown", "task_id", taskID)
 	}
 
-	if err := handle.exec.Shutdown(signal, timeout); err != nil {
+	remaining := timeout - time.Since(gracefulStart)
+	if remaining <= 0 {
+		remaining = time.Second
+	}
+
+	if err := handle.exec.Shutdown(signal, remaining); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
 		}
