@@ -52,7 +52,6 @@ In Nomad client configuration:
 ```hcl
 plugin "nomad-driver-firecracker" {
   config {
-    # Optional: paths allowed for kernel/initrd/drives (outside allocation directory)
     image_paths = ["/opt/vm-images"]
     
     jailer {
@@ -82,3 +81,4 @@ See [example job](example/example.nomad) for complete configuration.
 - [Signal Handling](docs/signals.md) - Signal forwarding and graceful shutdown
 - [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
 - [Logging](docs/logs.md) - Daemon logs and guest console output
+- [Troubleshooting](docs/troubleshooting.md) - Debugging common issues

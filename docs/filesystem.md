@@ -9,7 +9,7 @@ allocDir/
 │   └── <task_name>/    # Task instance directory
 │       └── jailer/
 │           └── <exec_file_name>/  # Firecracker binary name (from --exec-file)
-│               └── <task_id>/     # Jailer instance (ID set to task ID)
+│               └── <alloc_id>/    # Jailer instance (ID set to alloc ID)
 │                   └── root/      # Jailer chroot (security boundary)
 │                   ├── firecracker          # Firecracker daemon
 │                   ├── vmconfig.json        # VM configuration

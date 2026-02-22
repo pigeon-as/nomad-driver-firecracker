@@ -3,9 +3,9 @@
 ## Starting a Task
 1. Nomad calls `StartTask()` with config
 2. Driver validates config and resources
-3. Jailer launches Firecracker daemon in `taskDir/jailer/<exec_file_name>/<task_id>/root/`
+3. Jailer launches Firecracker daemon in `taskDir/jailer/<exec_file_name>/<alloc_id>/root/`
 4. VM boots from specified kernel and root filesystem
-5. Socket created at `taskDir/jailer/<exec_file_name>/<task_id>/root/run/firecracker.socket`
+5. Socket created at `taskDir/jailer/<exec_file_name>/<alloc_id>/root/run/firecracker.socket`
 
 ## Stopping a Task
 
