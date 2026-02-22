@@ -513,13 +513,37 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Attempt graceful VM shutdown via Ctrl+Alt+Del if socket is available
+	// Attempt graceful VM shutdown via Ctrl+Alt+Del if socket is available.
+	// This mirrors the QEMU driver's graceful shutdown via monitor socket:
+	// send the shutdown request, then poll until the process exits or timeout.
 	if handle.socketPath != "" {
+		// Use a short timeout for the API call itself to avoid hanging
+		// indefinitely if the socket is broken.
+		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer apiCancel()
 		c := client.New(handle.socketPath)
-		if err := c.SendCtrlAltDel(context.Background()); err != nil {
+		if err := c.SendCtrlAltDel(apiCtx); err != nil {
 			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
 		} else {
 			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
+			// Wait for the VM to shut down gracefully before falling back
+			// to exec.Shutdown, matching the QEMU driver pattern.
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+		out:
+			for {
+				select {
+				case <-ctx.Done():
+					d.logger.Debug("graceful shutdown timed out, forcing shutdown", "task_id", taskID, "timeout", timeout)
+					break out
+				case <-ticker.C:
+					if !handle.IsRunning() {
+						break out
+					}
+				}
+			}
 		}
 	} else {
 		d.logger.Debug("socket path not available, forcing shutdown", "task_id", taskID)

@@ -23,9 +23,13 @@ Do not invent custom abstractions, add fields to `taskHandle` or `taskStore`, em
 - [exec2 driver](https://github.com/hashicorp/nomad-driver-exec2)
 - [Built-in drivers (rawexec, exec, java)](https://github.com/hashicorp/nomad/tree/main/drivers)
 
+### Firecracker SDK
+
+Before implementing custom Firecracker-specific logic, check the [firecracker-go-sdk](https://github.com/firecracker-microvm/firecracker-go-sdk) for existing functionality that can be reused.
+
 ### What this means in practice
 
-- Do not add fields to `taskHandle`, `taskStore`, or `TaskState` unless those fields exist in official drivers.
+- Fields on `taskHandle`, `taskStore`, or `TaskState` must correspond to equivalent fields in official drivers (e.g., `socketPath` mirrors QEMU's `monitorPath`).
 - Do not emit events outside of `TaskEvents()` — official executor-based drivers don't emit lifecycle events.
 - Keep `run()` minimal — only update state fields, no side effects.
 - Domain-specific logic (jailer, Firecracker API) should be cleanly separated from driver framework code.
