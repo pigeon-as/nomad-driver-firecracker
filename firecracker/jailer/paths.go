@@ -12,10 +12,18 @@ type Paths struct {
 	ConfigPathChroot string
 }
 
+const chrootBaseDirName = "jailer"
+
+// ChrootBaseDir returns the jailer chroot base directory:
+// <task_dir>/jailer
+func ChrootBaseDir(taskDir string) string {
+	return filepath.Join(taskDir, chrootBaseDirName)
+}
+
 // TaskDir returns the jailer task directory:
 // <task_dir>/jailer/<exec_file_name>/<task_id>
 func TaskDir(taskDir, taskID, execFile string) string {
-	return filepath.Join(taskDir, "jailer", filepath.Base(execFile), taskID)
+	return filepath.Join(ChrootBaseDir(taskDir), filepath.Base(execFile), taskID)
 }
 
 // BuildPaths prepares jailer paths under the task directory and ensures the chroot root exists.
@@ -36,7 +44,7 @@ func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
 // <task_dir>/jailer/*/<task_id>
 // It returns an empty string if the directory does not exist.
 func FindTaskDir(taskDir, taskID string) (string, error) {
-	pattern := filepath.Join(taskDir, "jailer", "*", taskID)
+	pattern := filepath.Join(ChrootBaseDir(taskDir), "*", taskID)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", fmt.Errorf("invalid jailer path pattern %q: %w", pattern, err)

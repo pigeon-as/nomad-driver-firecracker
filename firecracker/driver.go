@@ -251,9 +251,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
+	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.ID, jConfig.ExecFile)
 
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
-		_ = os.RemoveAll(filepath.Dir(configPath))
+		_ = os.RemoveAll(jailerPath)
 		return nil, nil, err
 	}
 
@@ -264,7 +265,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
-		_ = os.RemoveAll(filepath.Dir(configPath))
+		_ = os.RemoveAll(jailerPath)
 		return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
@@ -283,12 +284,11 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	execImpl, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
 	if err != nil {
-		_ = os.RemoveAll(filepath.Dir(configPath))
+		_ = os.RemoveAll(jailerPath)
 		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
 	}
 
 	// Derive socket path early for potential cleanup and later use.
-	jailerPath := jailer.TaskDir(cfg.TaskDir().Dir, cfg.ID, jConfig.ExecFile)
 	socketPath := jailer.SocketPath(jailerPath)
 
 	// Guarantee cleanup of executor resources and jailer directory on any error.
@@ -377,6 +377,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		taskConfig:   cfg,
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
+		exitResult:   &drivers.ExitResult{},
 		logger:       d.logger,
 		socketPath:   socketPath,
 	}
