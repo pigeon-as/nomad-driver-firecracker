@@ -3,6 +3,7 @@ package firecracker
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"time"
@@ -35,6 +36,12 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		Attributes:        map[string]*structs.Attribute{},
 		Health:            drivers.HealthStateHealthy,
 		HealthDescription: drivers.DriverHealthy,
+	}
+
+	if _, err := os.Stat("/dev/kvm"); err != nil {
+		fp.Health = drivers.HealthStateUndetected
+		fp.HealthDescription = "/dev/kvm not available: KVM is required for Firecracker"
+		return fp
 	}
 
 	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {

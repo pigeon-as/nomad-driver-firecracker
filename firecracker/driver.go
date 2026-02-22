@@ -375,6 +375,10 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		return errors.New("handle cannot be nil")
 	}
 
+	if handle.Version != taskHandleVersion {
+		return fmt.Errorf("incompatible task handle version: got %d, expected %d", handle.Version, taskHandleVersion)
+	}
+
 	if _, ok := d.tasks.Get(handle.Config.ID); ok {
 		return nil
 	}
