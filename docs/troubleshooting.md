@@ -7,8 +7,8 @@ This guide covers common debugging techniques for the Firecracker Nomad driver.
 After submitting a job, check its status:
 
 ```bash
-nomad job run e2e/jobs/echo.hcl
-nomad job status echo
+nomad job run e2e/jobs/basic.hcl
+nomad job status basic
 ```
 
 Look at the **Allocations** table. If the status is `failed`, note the allocation ID prefix (e.g. `41fa4a14`).
@@ -27,20 +27,20 @@ Example output:
 
 ```
 Mode        Size   Name
--rw-r--r--  357 B  echo-hello.stdout.0
--rw-r--r--  0 B    echo-hello.stderr.0
+-rw-r--r--  357 B  firecracker.stdout.0
+-rw-r--r--  0 B    firecracker.stderr.0
 ```
 
 ### Read stdout
 
 ```bash
-nomad alloc fs <alloc_id> alloc/logs/echo-hello.stdout.0
+nomad alloc fs <alloc_id> alloc/logs/firecracker.stdout.0
 ```
 
 ### Read stderr
 
 ```bash
-nomad alloc fs <alloc_id> alloc/logs/echo-hello.stderr.0
+nomad alloc fs <alloc_id> alloc/logs/firecracker.stderr.0
 ```
 
 Stderr is where jailer and firecracker error messages appear (e.g. invalid instance ID, missing exec-file, etc.).

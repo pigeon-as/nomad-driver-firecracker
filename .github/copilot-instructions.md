@@ -38,7 +38,7 @@ For jailer, host setup, and VM configuration, align with the [official Firecrack
 - Keep `run()` minimal — only update state fields, no side effects.
 - Domain-specific logic (jailer, Firecracker API) should be cleanly separated from driver framework code.
 - When unsure about a pattern, check the QEMU driver first — it's the closest match to this project.
-- See [AGENT.md](../AGENT.md) for detailed struct and function rules.
+- See [AGENTS.md](../AGENTS.md) for detailed struct and function rules.
 
 ## Production Readiness Cross-Check
 
