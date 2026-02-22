@@ -272,9 +272,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		err = fmt.Errorf("firecracker binary %q not found in PATH: %v", jConfig.ExecFile, err)
 		return nil, nil, err
 	}
-	jConfig.ExecFile = fcBin
 
-	jArgs, err := jConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
+	// Copy the jailer configuration to avoid mutating shared plugin state.
+	localJConfig := *jConfig
+	localJConfig.ExecFile = fcBin
+
+	jArgs, err := localJConfig.BuildArgs(cfg.TaskDir().Dir, params, "--config-file", configPathChroot)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
 		return nil, nil, err
