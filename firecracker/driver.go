@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -23,8 +24,9 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
+
+var versionRegex = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 
 const (
 	pluginName = "firecracker"
@@ -141,6 +143,8 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 	}
 
 	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
+		fp.Health = drivers.HealthStateUndetected
+		fp.HealthDescription = "firecracker binary not configured"
 		return fp
 	}
 
@@ -152,12 +156,25 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		return fp
 	}
 
-	version := utils.QueryVersion(binPath)
+	version := queryVersion(binPath)
 	if version != "" {
 		fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
 	}
 
 	return fp
+}
+
+// queryVersion extracts the version string from a binary's --version output.
+func queryVersion(bin string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, "--version")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return versionRegex.FindString(string(out))
 }
 
 // prepareGuestFiles orchestrates guest file preparation by delegating to the jailer package.

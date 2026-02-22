@@ -5,8 +5,6 @@ import (
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
-
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
 
 type Drive struct {
@@ -38,9 +36,12 @@ func (d *Drive) ToSDK(id string) *models.Drive {
 		return nil
 	}
 	return &models.Drive{
-		DriveID:      utils.String(id),
-		PathOnHost:   utils.String(d.PathOnHost),
-		IsRootDevice: utils.Bool(d.IsRootDevice),
-		IsReadOnly:   utils.Bool(d.IsReadOnly),
+		DriveID:      strPtr(id),
+		PathOnHost:   strPtr(d.PathOnHost),
+		IsRootDevice: boolPtr(d.IsRootDevice),
+		IsReadOnly:   boolPtr(d.IsReadOnly),
 	}
 }
+
+func strPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool    { return &b }

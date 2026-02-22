@@ -6,8 +6,6 @@ import (
 
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
-
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
 
 var (
@@ -65,10 +63,6 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 }
 
 func (networkInterfaces NetworkInterfaces) Validate() error {
-	return networkInterfaces.validate()
-}
-
-func (networkInterfaces NetworkInterfaces) validate() error {
 	for _, iface := range networkInterfaces {
 		if iface.StaticConfiguration == nil {
 			return fmt.Errorf("static_configuration is required for each network interface: %+v", iface)
@@ -89,13 +83,13 @@ func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
 		m := &models.NetworkInterface{}
 		if iface.StaticConfiguration != nil {
 			if iface.StaticConfiguration.HostDevName != "" {
-				m.HostDevName = utils.String(iface.StaticConfiguration.HostDevName)
+				m.HostDevName = strPtr(iface.StaticConfiguration.HostDevName)
 			}
 			if iface.StaticConfiguration.MacAddress != "" {
 				m.GuestMac = iface.StaticConfiguration.MacAddress
 			}
 		}
-		m.IfaceID = utils.String(fmt.Sprintf("eth%d", i))
+		m.IfaceID = strPtr(fmt.Sprintf("eth%d", i))
 		if iface.InRateLimiter != nil {
 			m.RxRateLimiter = iface.InRateLimiter
 		}
@@ -106,3 +100,5 @@ func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
 	}
 	return out
 }
+
+func strPtr(s string) *string { return &s }

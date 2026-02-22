@@ -5,8 +5,6 @@ import (
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
-
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/utils"
 )
 
 type BootSource struct {
@@ -38,7 +36,7 @@ func (b *BootSource) ToSDK() *models.BootSource {
 		return nil
 	}
 	out := &models.BootSource{
-		KernelImagePath: utils.String(b.KernelImagePath),
+		KernelImagePath: strPtr(b.KernelImagePath),
 		BootArgs:        b.BootArgs,
 	}
 	if b.InitrdPath != "" {
@@ -46,3 +44,5 @@ func (b *BootSource) ToSDK() *models.BootSource {
 	}
 	return out
 }
+
+func strPtr(s string) *string { return &s }
