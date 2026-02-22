@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -25,8 +24,6 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 )
-
-var versionRegex = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 
 const (
 	pluginName = "firecracker"
@@ -116,64 +113,6 @@ func (d *FirecrackerDriverPlugin) Fingerprint(ctx context.Context) (<-chan *driv
 	ch := make(chan *drivers.Fingerprint)
 	go d.handleFingerprint(ctx, ch)
 	return ch, nil
-}
-
-func (d *FirecrackerDriverPlugin) handleFingerprint(ctx context.Context, ch chan<- *drivers.Fingerprint) {
-	defer close(ch)
-	ticker := time.NewTimer(0)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-d.ctx.Done():
-			return
-		case <-ticker.C:
-			ticker.Reset(fingerprintPeriod)
-			ch <- d.buildFingerprint()
-		}
-	}
-}
-
-func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
-	fp := &drivers.Fingerprint{
-		Attributes:        map[string]*structs.Attribute{},
-		Health:            drivers.HealthStateHealthy,
-		HealthDescription: drivers.DriverHealthy,
-	}
-
-	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
-		fp.Health = drivers.HealthStateUndetected
-		fp.HealthDescription = "firecracker binary not configured"
-		return fp
-	}
-
-	bin := d.config.Jailer.ExecFile
-	binPath, err := exec.LookPath(bin)
-	if err != nil {
-		fp.Health = drivers.HealthStateUndetected
-		fp.HealthDescription = fmt.Sprintf("firecracker binary %s not found: %v", bin, err)
-		return fp
-	}
-
-	version := queryVersion(binPath)
-	if version != "" {
-		fp.Attributes["driver.firecracker.version"] = structs.NewStringAttribute(version)
-	}
-
-	return fp
-}
-
-func queryVersion(bin string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, bin, "--version")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return versionRegex.FindString(string(out))
 }
 
 func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
@@ -316,7 +255,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		params.NetNS = cfg.NetworkIsolation.Path
 	}
 
-	if cgroupVersion := detectCgroupVersion(); cgroupVersion != "" {
+	if cgroupVersion := jailer.DetectCgroupVersion(); cgroupVersion != "" {
 		params.CgroupVersion = cgroupVersion
 	}
 
@@ -351,7 +290,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 
-	if err = d.waitForSocket(socketPath, 5*time.Second); err != nil {
+	if err = client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
 		err = fmt.Errorf("firecracker socket not ready after startup: %v", err)
 		return nil, nil, err
 	}
@@ -395,28 +334,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	return handle, driverNetwork, nil
 }
 
-func (d *FirecrackerDriverPlugin) waitForSocket(socketPath string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	c := client.New(socketPath)
-
-	for {
-		select {
-		case <-ticker.C:
-			if _, err := c.GetMachineConfiguration(); err == nil {
-				return nil
-			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("firecracker socket not ready after %v", timeout)
-			}
-		case <-d.ctx.Done():
-			return fmt.Errorf("socket verification cancelled")
-		}
-	}
-}
-
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	if handle == nil {
 		return errors.New("handle cannot be nil")
@@ -447,7 +364,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		d.logger.Warn("failed to discover firecracker socket path after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 		socketPath = ""
 	} else if socketPath != "" {
-		if err := d.waitForSocket(socketPath, 5*time.Second); err != nil {
+		if err := client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
 			d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 			socketPath = ""
 		}
@@ -617,17 +534,6 @@ func (d *FirecrackerDriverPlugin) TaskStats(ctx context.Context, taskID string, 
 
 func (d *FirecrackerDriverPlugin) TaskEvents(ctx context.Context) (<-chan *drivers.TaskEvent, error) {
 	return d.eventer.TaskEvents(ctx)
-}
-
-// detectCgroupVersion returns "1" or "2" matching jailer's --cgroup-version flag.
-func detectCgroupVersion() string {
-	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err == nil {
-		return "2"
-	}
-	if _, err := os.Stat("/sys/fs/cgroup/cpu"); err == nil {
-		return "1"
-	}
-	return ""
 }
 
 func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error {
