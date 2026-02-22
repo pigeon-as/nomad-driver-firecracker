@@ -80,6 +80,7 @@ See [example job](example/example.nomad) for complete configuration.
 
 - [Task Lifecycle](docs/task-lifecycle.md) - Start, stop, and recovery behavior
 - [Signal Handling](docs/signals.md) - Signal forwarding and graceful shutdown
+- [Networking](docs/networking.md) - Bridge mode, host mode, and guest configuration
 - [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
 - [Logging](docs/logs.md) - Daemon logs and guest console output
 - [Troubleshooting](docs/troubleshooting.md) - Debugging common issues
