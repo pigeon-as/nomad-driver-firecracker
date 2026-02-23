@@ -9,6 +9,51 @@ import (
 	drivers "github.com/hashicorp/nomad/plugins/drivers"
 )
 
+func strPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool    { return &b }
+func int64Ptr(i int64) *int64 { return &i }
+
+func (b *BootSource) ToSDK() *models.BootSource {
+	if b == nil {
+		return nil
+	}
+	out := &models.BootSource{
+		KernelImagePath: strPtr(b.KernelImagePath),
+		BootArgs:        b.BootArgs,
+	}
+	if b.InitrdPath != "" {
+		out.InitrdPath = b.InitrdPath
+	}
+	return out
+}
+
+func (d *Drive) ToSDK(id string) *models.Drive {
+	if d == nil {
+		return nil
+	}
+	out := &models.Drive{
+		DriveID:      strPtr(id),
+		PathOnHost:   strPtr(d.PathOnHost),
+		IsRootDevice: boolPtr(d.IsRootDevice),
+		IsReadOnly:   boolPtr(d.IsReadOnly),
+	}
+	if d.RateLimiter != nil {
+		out.RateLimiter = d.RateLimiter
+	}
+	return out
+}
+
+func (b *Balloon) ToSDK() *models.Balloon {
+	if b == nil {
+		return nil
+	}
+	return &models.Balloon{
+		AmountMib:             int64Ptr(b.AmountMiB),
+		DeflateOnOom:          boolPtr(b.DeflateOnOOM),
+		StatsPollingIntervals: b.StatsPollingInterval,
+	}
+}
+
 // ToSDK converts a driver Config into a firecracker-go-sdk
 // FullVMConfiguration, suitable for sequential API calls.
 func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, error) {
@@ -31,6 +76,9 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 		vmCfg.NetworkInterfaces = cfg.NetworkInterfaces.ToSDK()
 	} else {
 		vmCfg.NetworkInterfaces = []*models.NetworkInterface{}
+	}
+	if cfg.Balloon != nil {
+		vmCfg.Balloon = cfg.Balloon.ToSDK()
 	}
 	if res != nil && res.NomadResources != nil {
 		mc := &models.MachineConfiguration{}

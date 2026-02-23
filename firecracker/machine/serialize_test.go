@@ -138,3 +138,160 @@ func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
 		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
 	}
 }
+
+func TestToSDK_Balloon(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		Balloon:    &Balloon{AmountMiB: 128, DeflateOnOOM: true, StatsPollingInterval: 3},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.Balloon == nil {
+		t.Fatal("expected Balloon to be set")
+	}
+	if *vmCfg.Balloon.AmountMib != 128 {
+		t.Errorf("Balloon.AmountMib = %d, want 128", *vmCfg.Balloon.AmountMib)
+	}
+	if *vmCfg.Balloon.DeflateOnOom != true {
+		t.Error("expected DeflateOnOom to be true")
+	}
+	if vmCfg.Balloon.StatsPollingIntervals != 3 {
+		t.Errorf("Balloon.StatsPollingIntervals = %d, want 3", vmCfg.Balloon.StatsPollingIntervals)
+	}
+}
+
+func TestToSDK_NoBalloon(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.Balloon != nil {
+		t.Error("expected Balloon to be nil when not configured")
+	}
+}
+
+func TestToSDK_DriveRateLimiter(t *testing.T) {
+	refillTime := int64(500)
+	size := int64(524288)
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives: []Drive{{
+			PathOnHost:   "/rootfs.ext4",
+			IsRootDevice: true,
+			RateLimiter: &models.RateLimiter{
+				Bandwidth: &models.TokenBucket{
+					RefillTime: &refillTime,
+					Size:       &size,
+				},
+			},
+		}},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if len(vmCfg.Drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(vmCfg.Drives))
+	}
+	if vmCfg.Drives[0].RateLimiter == nil {
+		t.Fatal("expected drive rate limiter to be set")
+	}
+	if *vmCfg.Drives[0].RateLimiter.Bandwidth.Size != 524288 {
+		t.Errorf("drive rate limiter bandwidth size = %d, want 524288", *vmCfg.Drives[0].RateLimiter.Bandwidth.Size)
+	}
+}
+
+func TestBootSource_ToSDK(t *testing.T) {
+	b := &BootSource{KernelImagePath: "/vmlinux", BootArgs: "console=ttyS0", InitrdPath: "/initrd"}
+	sdk := b.ToSDK()
+	if sdk == nil {
+		t.Fatal("expected non-nil SDK BootSource")
+	}
+	if *sdk.KernelImagePath != "/vmlinux" {
+		t.Errorf("KernelImagePath = %s, want /vmlinux", *sdk.KernelImagePath)
+	}
+	if sdk.BootArgs != "console=ttyS0" {
+		t.Errorf("BootArgs = %s, want console=ttyS0", sdk.BootArgs)
+	}
+	if sdk.InitrdPath != "/initrd" {
+		t.Errorf("InitrdPath = %s, want /initrd", sdk.InitrdPath)
+	}
+}
+
+func TestBootSource_ToSDK_Nil(t *testing.T) {
+	var b *BootSource
+	if b.ToSDK() != nil {
+		t.Error("expected nil SDK BootSource for nil receiver")
+	}
+}
+
+func TestDrive_ToSDK_RateLimiter(t *testing.T) {
+	refillTime := int64(1000)
+	size := int64(1048576)
+	d := &Drive{
+		PathOnHost:   "/rootfs.ext4",
+		IsRootDevice: true,
+		RateLimiter: &models.RateLimiter{
+			Bandwidth: &models.TokenBucket{
+				RefillTime: &refillTime,
+				Size:       &size,
+			},
+		},
+	}
+
+	sdk := d.ToSDK("drive0")
+	if sdk.RateLimiter == nil {
+		t.Fatal("expected rate limiter to be set")
+	}
+	if sdk.RateLimiter.Bandwidth == nil {
+		t.Fatal("expected rate limiter bandwidth to be set")
+	}
+	if *sdk.RateLimiter.Bandwidth.RefillTime != 1000 {
+		t.Errorf("RefillTime = %d, want 1000", *sdk.RateLimiter.Bandwidth.RefillTime)
+	}
+	if *sdk.RateLimiter.Bandwidth.Size != 1048576 {
+		t.Errorf("Size = %d, want 1048576", *sdk.RateLimiter.Bandwidth.Size)
+	}
+}
+
+func TestDrive_ToSDK_NoRateLimiter(t *testing.T) {
+	d := &Drive{PathOnHost: "/rootfs.ext4", IsRootDevice: true}
+	sdk := d.ToSDK("drive0")
+	if sdk.RateLimiter != nil {
+		t.Error("expected nil rate limiter")
+	}
+}
+
+func TestBalloon_ToSDK_Values(t *testing.T) {
+	b := &Balloon{AmountMiB: 256, DeflateOnOOM: true, StatsPollingInterval: 5}
+	sdk := b.ToSDK()
+	if sdk == nil {
+		t.Fatal("expected non-nil SDK Balloon")
+	}
+	if *sdk.AmountMib != 256 {
+		t.Errorf("AmountMib = %d, want 256", *sdk.AmountMib)
+	}
+	if *sdk.DeflateOnOom != true {
+		t.Error("expected DeflateOnOom to be true")
+	}
+	if sdk.StatsPollingIntervals != 5 {
+		t.Errorf("StatsPollingIntervals = %d, want 5", sdk.StatsPollingIntervals)
+	}
+}
+
+func TestBalloon_ToSDK_Nil(t *testing.T) {
+	var b *Balloon
+	if b.ToSDK() != nil {
+		t.Error("expected nil SDK Balloon for nil receiver")
+	}
+}
