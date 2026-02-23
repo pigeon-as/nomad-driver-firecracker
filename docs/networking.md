@@ -56,17 +56,42 @@ The TAP device must be pre-created on the host.
 
 ## Guest Configuration
 
-The guest VM must configure its network interface to use the IP allocated by Nomad. Common approaches:
+The guest VM must configure its network interface to use the IP allocated by Nomad. The guest interface is typically `eth0` inside the VM. Common approaches:
 
-- **systemd unit** (`fcnet.service`): A simple startup script that reads the expected IP/gateway and runs `ip addr add` / `ip route add`
+- **systemd unit** (`fcnet.service`): A startup script that configures `eth0` with the expected IP/gateway via `ip addr add` / `ip route add`
 - **cloud-init**: If the guest image supports it
 - **DHCP**: If a DHCP server is available on the bridge network
 - **Static config**: Baked into the rootfs image
 
-The guest interface is typically `eth0` inside the VM.
+## MMDS (Microvm Metadata Service)
 
-For custom rootfs images, the guest VM must configure its network interface. Common approaches:
+The driver supports [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) for passing metadata to the guest VM. Provide a JSON string in the task config:
 
-- **systemd unit** (`fcnet.service`): A startup script that configures `eth0` with the expected IP/gateway
-- **DHCP**: If a DHCP server is available on the bridge network
-- **Static config**: Baked into the rootfs image
+```hcl
+config {
+  metadata = <<EOF
+{
+  "instance-id": "i-1234567890abcdef0",
+  "local-hostname": "my-vm"
+}
+EOF
+}
+```
+
+**How it works:**
+1. The driver validates the JSON at task submission time
+2. After the VM starts and the API socket is ready, the driver pushes the metadata via `PUT /mmds`
+3. MMDS is configured on the first network interface (`eth0`) using MMDS version 2
+4. The guest retrieves metadata by querying `http://169.254.169.254/` (requires networking)
+
+**Guest access:**
+```bash
+# MMDS v2 requires a token
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-metadata-token-ttl-seconds: 21600")
+curl -H "X-metadata-token: $TOKEN" http://169.254.169.254/
+```
+
+**Requirements:**
+- At least one network interface must be configured (bridge mode or manual `network_interface`)
+- Metadata must be valid JSON
