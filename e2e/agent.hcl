@@ -11,6 +11,7 @@ plugin "nomad-driver-firecracker" {
     jailer {
       exec_file     = "firecracker"
       jailer_binary = "jailer"
+      chroot_base   = "/srv/jailer"
     }
   }
 }

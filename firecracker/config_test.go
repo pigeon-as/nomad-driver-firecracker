@@ -18,13 +18,13 @@ func TestConfig_Validate(t *testing.T) {
 		{"missing jailer", &Config{}, true},
 		{
 			"missing image_paths",
-			&Config{Jailer: &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}},
+			&Config{Jailer: &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"}},
 			true,
 		},
 		{
 			"valid minimal",
 			&Config{
-				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"},
+				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
 				ImagePaths: []string{"/opt/images"},
 			},
 			false,
@@ -32,7 +32,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			"relative image_path",
 			&Config{
-				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"},
+				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
 				ImagePaths: []string{"relative/path"},
 			},
 			true,
@@ -40,7 +40,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			"empty image_path",
 			&Config{
-				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"},
+				Jailer:     &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
 				ImagePaths: []string{""},
 			},
 			true,

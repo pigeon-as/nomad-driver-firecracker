@@ -95,20 +95,22 @@ func waitForRunning(t *testing.T, ctx context.Context, job string) {
 	}
 }
 
-func waitForLogs(t *testing.T, ctx context.Context, allocID, task string) string {
+// waitForLogs polls until the task's stdout contains substr or the timeout expires.
+func waitForLogs(t *testing.T, ctx context.Context, allocID, task, substr string) string {
 	t.Helper()
 	deadline := time.After(timeout)
+	var logs string
 	for {
-		cmd := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task)
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			return strings.TrimSpace(string(out))
+		out, err := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task).CombinedOutput()
+		logs = strings.TrimSpace(string(out))
+		if err == nil && strings.Contains(logs, substr) {
+			return logs
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for logs from task %q: %s", task, string(out))
+			t.Fatalf("timed out waiting for %q in task %q logs:\n%s", substr, task, logs)
 		default:
-			time.Sleep(2 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }
@@ -178,7 +180,7 @@ func TestBasic_Stdout(t *testing.T) {
 	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
 	must.SliceNotEmpty(t, allocID)
 
-	logs := waitForLogs(t, ctx, allocID[1], "firecracker")
+	logs := waitForLogs(t, ctx, allocID[1], "firecracker", "Linux")
 	must.StrContains(t, logs, "Linux")
 }
 
@@ -195,5 +197,34 @@ func TestMMDS_Metadata(t *testing.T) {
 	// Verify job reached running state — this confirms MMDS config was
 	// accepted by Firecracker and PutMmds succeeded without errors.
 	jobStatus := run(t, ctx, "nomad", "job", "status", "mmds")
+	must.RegexMatch(t, runningRe, jobStatus)
+}
+
+// TestSnapshot_Restart verifies the snapshot boot feature by cold booting
+// a VM, restarting the allocation (which triggers snapshot save + restore),
+// and confirming the task comes back up running.
+func TestSnapshot_Restart(t *testing.T) {
+	ctx := setup(t)
+	defer purge(t, ctx, "snapshot")()
+
+	// Cold boot — use -detach because service job deployment monitoring
+	// would block until healthy (or until the context deadline).
+	_ = run(t, ctx, "nomad", "job", "run", "-detach", "./jobs/snapshot.hcl")
+	waitForRunning(t, ctx, "snapshot")
+
+	// Extract allocation ID.
+	allocs := run(t, ctx, "nomad", "job", "allocs", "-json", "snapshot")
+	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
+	must.SliceNotEmpty(t, allocID)
+
+	// Restart the allocation — triggers StopTask (snapshot save) followed
+	// by StartTask (snapshot restore) within the same allocation.
+	_ = run(t, ctx, "nomad", "alloc", "restart", allocID[1])
+
+	// Wait for the task to come back up after snapshot restore.
+	pause()
+	waitForRunning(t, ctx, "snapshot")
+
+	jobStatus := run(t, ctx, "nomad", "job", "status", "snapshot")
 	must.RegexMatch(t, runningRe, jobStatus)
 }

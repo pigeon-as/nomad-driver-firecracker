@@ -1,0 +1,34 @@
+job "snapshot" {
+  datacenters = ["dc1"]
+  type        = "service"
+
+  group "snapshot" {
+    task "firecracker" {
+      driver = "firecracker"
+
+      config {
+        snapshot_boot = true
+
+        boot_source {
+          kernel_image_path = "/tmp/firecracker-images/vmlinux"
+          boot_args         = "console=ttyS0 reboot=k panic=1"
+        }
+
+        drive {
+          path_on_host   = "/tmp/firecracker-images/rootfs.ext4"
+          is_root_device = true
+        }
+      }
+
+      logs {
+        max_files     = 2
+        max_file_size = 5
+      }
+
+      resources {
+        cpu    = 500
+        memory = 256
+      }
+    }
+  }
+}

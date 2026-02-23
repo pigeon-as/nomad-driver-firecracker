@@ -11,13 +11,17 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 )
 
+// Client wraps the firecracker-go-sdk HTTP client for the Firecracker
+// API socket.
 type Client struct {
 	client *firecracker.Client
 }
 
+// New creates a Firecracker API client for the given socket path.
 func New(socketPath string) *Client {
-	fc := firecracker.NewClient(socketPath, nil, false)
-	return &Client{client: fc}
+	return &Client{
+		client: firecracker.NewClient(socketPath, nil, false),
+	}
 }
 
 func (c *Client) GetMachineConfiguration() (*models.MachineConfiguration, error) {
@@ -47,6 +51,45 @@ func (c *Client) PutMmds(ctx context.Context, metadata interface{}) error {
 		return errors.New("client is not initialized")
 	}
 	_, err := c.client.PutMmds(ctx, metadata)
+	return err
+}
+
+// PauseVM pauses the microVM by setting its state to "Paused".
+func (c *Client) PauseVM(ctx context.Context) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	vm := &models.VM{State: strPtr(models.VMStatePaused)}
+	_, err := c.client.PatchVM(ctx, vm)
+	return err
+}
+
+// CreateSnapshot creates a full snapshot of the paused microVM.
+// Paths are relative to the Firecracker chroot root.
+func (c *Client) CreateSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	params := &models.SnapshotCreateParams{
+		SnapshotPath: &snapshotPath,
+		MemFilePath:  &memFilePath,
+	}
+	_, err := c.client.CreateSnapshot(ctx, params)
+	return err
+}
+
+// LoadSnapshot loads a previously saved snapshot and resumes the VM.
+// Paths are relative to the Firecracker chroot root.
+func (c *Client) LoadSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	params := &models.SnapshotLoadParams{
+		SnapshotPath: &snapshotPath,
+		MemFilePath:  &memFilePath,
+		ResumeVM:     true,
+	}
+	_, err := c.client.LoadSnapshot(ctx, params)
 	return err
 }
 
