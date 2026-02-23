@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,10 +23,9 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/snapshot"
 )
 
@@ -222,42 +220,26 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// didn't manually configure network interfaces, create a TAP device with
 	// TC redirect inside the namespace for seamless bridge networking.
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		tapName, tapErr := network_interface.SetupTapRedirect(cfg.NetworkIsolation.Path)
+		nifs, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
 		}
-		driverConfig.NetworkInterfaces = network_interface.NetworkInterfaces{
-			{
-				StaticConfiguration: &network_interface.StaticNetworkConfiguration{
-					HostDevName: tapName,
-				},
-			},
-		}
-		d.logger.Debug("created tap for bridge networking", "tap", tapName, "netns", cfg.NetworkIsolation.Path)
+		driverConfig.NetworkInterfaces = nifs
+		d.logger.Debug("created tap for bridge networking", "netns", cfg.NetworkIsolation.Path)
 	}
 
 	vmCfg := &machine.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
+		Metadata:          driverConfig.Metadata,
 	}
 
 	// MMDS requires at least one network interface to route metadata requests.
 	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) == 0 {
 		_ = os.RemoveAll(jailerPath)
 		return nil, nil, fmt.Errorf("metadata requires networking: configure bridge mode or a network_interface block")
-	}
-
-	// When metadata is provided and network interfaces are configured,
-	// enable MMDS on the first network interface so the guest can query
-	// instance metadata at 169.254.169.254 (Firecracker default).
-	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) > 0 {
-		version := "V2"
-		vmCfg.MmdsConfig = &models.MmdsConfig{
-			Version:           &version,
-			NetworkInterfaces: []string{"eth0"},
-		}
 	}
 
 	// Check whether a previous snapshot exists for fast restore.
@@ -391,13 +373,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// created by the VMM process before the guest boots, so if it isn't
 	// available within the timeout the process failed to start.
 	// Matches the firecracker-go-sdk default of 3s with 10ms polling.
-	if waitErr := client.WaitForReady(d.ctx, socketPath, 3*time.Second); waitErr != nil {
+	if waitErr := machine.WaitForReady(d.ctx, socketPath, 3*time.Second); waitErr != nil {
 		err = fmt.Errorf("firecracker socket not ready: %v", waitErr)
 		return nil, nil, err
 	}
 
 	// Configure the VM via the Firecracker API.
-	c := client.New(socketPath)
+	c := machine.NewClient(socketPath)
 	configCtx, configCancel := context.WithTimeout(d.ctx, 10*time.Second)
 	defer configCancel()
 
@@ -425,12 +407,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
 	if driverConfig.Metadata != "" {
-		var metadata interface{}
-		if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
-			err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
-			return nil, nil, err
-		}
-		if mmdsErr := c.PutMmds(configCtx, metadata); mmdsErr != nil {
+		if mmdsErr := c.PutMmdsJSON(configCtx, driverConfig.Metadata); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err
 		}
@@ -500,7 +477,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		d.logger.Warn("failed to discover firecracker socket path after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 		socketPath = ""
 	} else if socketPath != "" {
-		if err := client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
+		if err := machine.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
 			d.logger.Warn("socket not ready after recovery", "task_id", taskState.TaskConfig.ID, "err", err)
 			socketPath = ""
 		}
@@ -585,7 +562,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
 		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer apiCancel()
-		c := client.New(handle.socketPath)
+		c := machine.NewClient(handle.socketPath)
 		if err := c.SendCtrlAltDel(apiCtx); err != nil {
 			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
 		} else {
@@ -644,7 +621,7 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	c := client.New(handle.socketPath)
+	c := machine.NewClient(handle.socketPath)
 	if err := c.PauseVM(ctx); err != nil {
 		d.logger.Warn("snapshot: failed to pause VM", "task_id", taskID, "err", err)
 		return

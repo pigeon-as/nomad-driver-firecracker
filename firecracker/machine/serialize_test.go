@@ -6,8 +6,6 @@ import (
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
 )
 
 func TestToSDK_NilConfig(t *testing.T) {
@@ -19,8 +17,8 @@ func TestToSDK_NilConfig(t *testing.T) {
 
 func TestToSDK_MissingKernel(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 	_, err := ToSDK(cfg, nil)
 	if err == nil {
@@ -30,8 +28,8 @@ func TestToSDK_MissingKernel(t *testing.T) {
 
 func TestToSDK_CPUShareConversion(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 
 	tests := []struct {
@@ -67,8 +65,8 @@ func TestToSDK_CPUShareConversion(t *testing.T) {
 
 func TestToSDK_MmdsConfig(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 		MmdsConfig: &models.MmdsConfig{
 			NetworkInterfaces: []string{"eth0"},
 		},
@@ -88,8 +86,8 @@ func TestToSDK_MmdsConfig(t *testing.T) {
 
 func TestToSDK_MmdsConfigNil(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
