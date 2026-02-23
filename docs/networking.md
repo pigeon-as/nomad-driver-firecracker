@@ -45,9 +45,10 @@ No automatic TAP setup. You must manually configure a `network_interface` block:
 ```hcl
 config {
   network_interface {
-    iface_id        = "eth0"
-    host_dev_name   = "tap0"
-    guest_mac       = "06:00:AC:10:00:02"
+    static_configuration {
+      host_dev_name = "tap0"
+      mac_address   = "06:00:AC:10:00:02"
+    }
   }
 }
 ```
