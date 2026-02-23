@@ -47,7 +47,7 @@ type Config struct {
 	// may load kernel, initrd, and drive images (in addition to the allocation directory).
 	ImagePaths []string `codec:"image_paths"`
 	// SnapshotPath is an optional persistent directory for snapshot storage.
-	// When set, snapshots are stored under <snapshot_path>/<jobID>/<taskName>/
+	// When set, snapshots are stored under <snapshot_path>/<jobID>/<groupName>/<taskName>/
 	// and survive allocation GC, enabling scale-to-zero workflows.
 	// Must be on the same filesystem as chroot_base (hard-link requirement).
 	// When empty, snapshots are stored in the task directory and only persist

@@ -618,7 +618,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	return nil
 }
 
-// snapshotEnabled reports whether the snapshot block is set for the task.
+// snapshotEnabled reports whether snapshot-on-stop is enabled for the task.
 func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 	if handle.taskConfig == nil {
 		return false
