@@ -258,16 +258,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// Check whether a previous snapshot exists for fast restore.
-	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapshot.Has(d.config.SnapshotPath, cfg.TaskDir().Dir, cfg.JobName, cfg.Name)
-
-	snapshotPath := d.config.SnapshotPath
-	jobID := cfg.JobName
-	taskName := cfg.Name
+	snapLoc := snapshot.Loc{
+		BasePath:  d.config.SnapshotPath,
+		TaskDir:   cfg.TaskDir().Dir,
+		JobID:     cfg.JobName,
+		GroupName: cfg.TaskGroupName,
+		TaskName:  cfg.Name,
+	}
+	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
 
 	if restoreFromSnapshot {
 		// Link snapshot files into the chroot so Firecracker can load them.
 		chrootRoot := filepath.Dir(configPath)
-		if err := snapshot.Link(snapshotPath, cfg.TaskDir().Dir, jobID, taskName, chrootRoot); err != nil {
+		if err := snapLoc.Link(chrootRoot); err != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to link snapshot files: %v", err)
 		}
@@ -403,7 +406,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		c := client.New(socketPath)
 		if loadErr := c.LoadSnapshot(loadCtx, snapshot.VMStatePath, snapshot.MemPath); loadErr != nil {
 			d.logger.Warn("snapshot restore failed, removing snapshot for cold boot on next restart", "task_id", cfg.ID, "err", loadErr)
-			_ = snapshot.RemoveDir(snapshotPath, cfg.TaskDir().Dir, jobID, taskName)
+			_ = snapLoc.RemoveDir()
 			err = fmt.Errorf("failed to load snapshot: %v", loadErr)
 			return nil, nil, err
 		}
@@ -651,13 +654,16 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 	// Derive the chroot root from the socket path:
 	//   <chrootBase>/<exec>/<id>/root/run/firecracker.socket → .../root
 	chrootRoot := filepath.Dir(filepath.Dir(handle.socketPath))
-	snapshotPath := d.config.SnapshotPath
-	taskDir := handle.taskConfig.TaskDir().Dir
-	jobID := handle.taskConfig.JobName
-	taskName := handle.taskConfig.Name
-	if err := snapshot.Save(chrootRoot, snapshotPath, taskDir, jobID, taskName); err != nil {
+	snapLoc := snapshot.Loc{
+		BasePath:  d.config.SnapshotPath,
+		TaskDir:   handle.taskConfig.TaskDir().Dir,
+		JobID:     handle.taskConfig.JobName,
+		GroupName: handle.taskConfig.TaskGroupName,
+		TaskName:  handle.taskConfig.Name,
+	}
+	if err := snapLoc.Save(chrootRoot); err != nil {
 		d.logger.Warn("snapshot: failed to save snapshot files", "task_id", taskID, "err", err)
-		_ = snapshot.RemoveDir(snapshotPath, taskDir, jobID, taskName)
+		_ = snapLoc.RemoveDir()
 		return
 	}
 

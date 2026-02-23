@@ -43,7 +43,7 @@ When no `snapshot_path` is set in the plugin config, snapshot files are stored i
 
 ### Persistent (scale-to-zero)
 
-When `snapshot_path` is set in the plugin config, snapshot files are stored under `<snapshot_path>/<jobID>/<taskName>/`. This directory is independent of the allocation lifecycle, so snapshots survive allocation GC. This enables scale-to-zero workflows where a job is scaled to 0, then back to 1 — the new allocation finds the existing snapshot and resumes instantly.
+When `snapshot_path` is set in the plugin config, snapshot files are stored under `<snapshot_path>/<jobID>/<groupName>/<taskName>/`. This directory is independent of the allocation lifecycle, so snapshots survive allocation GC. This enables scale-to-zero workflows where a job is scaled to 0, then back to 1 — the new allocation finds the existing snapshot and resumes instantly.
 
 ```hcl
 plugin "firecracker" {
@@ -55,8 +55,8 @@ plugin "firecracker" {
 ```
 
 With this configuration:
-- VMs in job `my-job`, task `my-task` → snapshots at `/opt/vm-snapshots/my-job/my-task/`
-- Each job+task combination gets its own isolated directory automatically
+- VMs in job `my-job`, group `my-group`, task `my-task` → snapshots at `/opt/vm-snapshots/my-job/my-group/my-task/`
+- Each job+group+task combination gets its own isolated directory automatically
 
 ## Timeout Budget
 

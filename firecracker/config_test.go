@@ -45,6 +45,33 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			true,
 		},
+		{
+			"valid snapshot_path",
+			&Config{
+				Jailer:       &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
+				ImagePaths:   []string{"/opt/images"},
+				SnapshotPath: "/opt/vm-snapshots",
+			},
+			false,
+		},
+		{
+			"relative snapshot_path",
+			&Config{
+				Jailer:       &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
+				ImagePaths:   []string{"/opt/images"},
+				SnapshotPath: "relative/path",
+			},
+			true,
+		},
+		{
+			"non-normalized snapshot_path",
+			&Config{
+				Jailer:       &jailer.JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"},
+				ImagePaths:   []string{"/opt/images"},
+				SnapshotPath: "/opt/vm-snapshots/../other",
+			},
+			true,
+		},
 	}
 
 	for _, tt := range tests {

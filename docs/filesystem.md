@@ -19,9 +19,10 @@ When `snapshot_path` is set in the plugin config, snapshots are stored outside t
 ```
 <snapshot_path>/            # e.g. /opt/vm-snapshots
 └── <jobID>/
-    └── <taskName>/
-        ├── vmstate         # VM state snapshot
-        └── memory          # Memory snapshot
+    └── <groupName>/
+        └── <taskName>/
+            ├── vmstate         # VM state snapshot
+            └── memory          # Memory snapshot
 ```
 
 This directory survives allocation GC, enabling scale-to-zero workflows.

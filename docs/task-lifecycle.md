@@ -14,7 +14,7 @@
 ## Stopping a Task
 
 1. Nomad calls `StopTask()` with timeout
-2. If `snapshot_on_stop = true`, the driver pauses the VM, creates a snapshot, and saves snapshot files to the task directory
+2. If `snapshot_on_stop = true`, the driver pauses the VM, creates a snapshot, and saves snapshot files to the snapshot directory (`<task_dir>/snapshots/` by default, or `<snapshot_path>/<jobID>/<group>/<task>/` when `snapshot_path` is configured)
 3. Driver sends Ctrl+Alt+Del via Firecracker HTTP API for graceful shutdown
 4. Driver polls until the VM exits or the timeout expires
 5. Remaining time budget is passed to the executor's `Shutdown` (SIGTERM then SIGKILL)

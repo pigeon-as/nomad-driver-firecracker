@@ -19,20 +19,30 @@ const (
 	MemPath     = "/" + MemName
 )
 
+// Loc identifies the snapshot storage location for a task. Construct once
+// and call methods instead of passing 5 parameters to every function.
+type Loc struct {
+	BasePath  string // plugin-level snapshot_path (empty = ephemeral)
+	TaskDir   string // Nomad task directory
+	JobID     string
+	GroupName string
+	TaskName  string
+}
+
 // Dir returns the directory where snapshot files are stored.
-// If snapshotPath is set (persistent mode), files go under
-// <snapshotPath>/<jobID>/<taskName>/. Otherwise they go under
-// <taskDir>/snapshots/ (ephemeral, within-allocation only).
-func Dir(snapshotPath, taskDir, jobID, taskName string) string {
-	if snapshotPath != "" {
-		return filepath.Join(snapshotPath, jobID, taskName)
+// If BasePath is set (persistent mode), files go under
+// <BasePath>/<JobID>/<GroupName>/<TaskName>/. Otherwise they go under
+// <TaskDir>/snapshots/ (ephemeral, within-allocation only).
+func (l Loc) Dir() string {
+	if l.BasePath != "" {
+		return filepath.Join(l.BasePath, l.JobID, l.GroupName, l.TaskName)
 	}
-	return filepath.Join(taskDir, snapshotDirName)
+	return filepath.Join(l.TaskDir, snapshotDirName)
 }
 
 // Has reports whether both snapshot files exist in the snapshot directory.
-func Has(snapshotPath, taskDir, jobID, taskName string) bool {
-	dir := Dir(snapshotPath, taskDir, jobID, taskName)
+func (l Loc) Has() bool {
+	dir := l.Dir()
 	for _, name := range []string{VMStateName, MemName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			return false
@@ -46,13 +56,13 @@ func Has(snapshotPath, taskDir, jobID, taskName string) bool {
 // Both directories must be on the same filesystem (rename is an instant
 // metadata operation; cross-device moves would require copying the full
 // memory file and are not supported).
-func Save(chrootRootPath, snapshotPath, taskDir, jobID, taskName string) error {
-	dir := Dir(snapshotPath, taskDir, jobID, taskName)
+func (l Loc) Save(chrootRoot string) error {
+	dir := l.Dir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create snapshot directory: %w", err)
 	}
 	for _, name := range []string{VMStateName, MemName} {
-		src := filepath.Join(chrootRootPath, name)
+		src := filepath.Join(chrootRoot, name)
 		dst := filepath.Join(dir, name)
 		if err := os.Rename(src, dst); err != nil {
 			return fmt.Errorf("move snapshot file %s: %w", name, err)
@@ -64,11 +74,11 @@ func Save(chrootRootPath, snapshotPath, taskDir, jobID, taskName string) error {
 // Link hard-links snapshot artifacts from the snapshot directory into the
 // chroot root so Firecracker can load them. Both directories must be on
 // the same filesystem.
-func Link(snapshotPath, taskDir, jobID, taskName, chrootRootPath string) error {
-	dir := Dir(snapshotPath, taskDir, jobID, taskName)
+func (l Loc) Link(chrootRoot string) error {
+	dir := l.Dir()
 	for _, name := range []string{VMStateName, MemName} {
 		src := filepath.Join(dir, name)
-		dst := filepath.Join(chrootRootPath, name)
+		dst := filepath.Join(chrootRoot, name)
 		if err := os.Link(src, dst); err != nil {
 			return fmt.Errorf("link snapshot file %s: %w", name, err)
 		}
@@ -78,6 +88,6 @@ func Link(snapshotPath, taskDir, jobID, taskName, chrootRootPath string) error {
 
 // RemoveDir removes the snapshot directory. Used when a snapshot restore
 // fails to ensure the next start falls back to cold boot.
-func RemoveDir(snapshotPath, taskDir, jobID, taskName string) error {
-	return os.RemoveAll(Dir(snapshotPath, taskDir, jobID, taskName))
+func (l Loc) RemoveDir() error {
+	return os.RemoveAll(l.Dir())
 }
