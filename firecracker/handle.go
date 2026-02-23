@@ -5,7 +5,7 @@ package firecracker
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"strconv"
 	"sync"
 	"syscall"
@@ -86,11 +86,9 @@ func (h *taskHandle) run() {
 // forwardSignal sends SIGTERM/SIGINT as Ctrl+Alt+Del via the Firecracker API.
 // Other signals are forwarded directly to the executor process.
 func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error {
-	sig := os.Interrupt
-	if s, ok := signals.SignalLookup[signalName]; ok {
-		sig = s
-	} else {
-		h.logger.Warn("unknown signal to forward to firecracker, using SIGINT", "signal", signalName, "task_id", h.taskConfig.ID)
+	sig, ok := signals.SignalLookup[signalName]
+	if !ok {
+		return fmt.Errorf("unknown signal %q", signalName)
 	}
 
 	// For SIGTERM/SIGINT, attempt graceful shutdown via Firecracker API

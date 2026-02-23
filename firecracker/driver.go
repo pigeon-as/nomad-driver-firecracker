@@ -39,10 +39,12 @@ const (
 	taskHandleVersion = 1
 )
 
-// jailerID returns a globally unique, filesystem-safe identifier for the
-// jailer instance. It follows the Docker driver pattern of "taskName-allocID".
+// jailerID returns a unique, filesystem-safe identifier for the jailer
+// instance. AllocID is a 36-char UUID (hex digits and hyphens) that
+// satisfies the jailer's ^[a-zA-Z0-9-]{1,64}$ requirement and is unique
+// per allocation.
 func jailerID(cfg *drivers.TaskConfig) string {
-	return cfg.Name + "-" + cfg.AllocID
+	return cfg.AllocID
 }
 
 var (
@@ -249,7 +251,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// enable MMDS on the first network interface so the guest can query
 	// instance metadata at 169.254.169.254 (Firecracker default).
 	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) > 0 {
+		version := "V2"
 		vmCfg.MmdsConfig = &models.MmdsConfig{
+			Version:           &version,
 			NetworkInterfaces: []string{"eth0"},
 		}
 	}
@@ -258,7 +262,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	snapLoc := snapshot.Loc{
 		BasePath:  d.config.SnapshotPath,
 		TaskDir:   cfg.TaskDir().Dir,
-		JobID:     cfg.JobName,
+		Namespace: cfg.Namespace,
+		JobID:     cfg.JobID,
 		GroupName: cfg.TaskGroupName,
 		TaskName:  cfg.Name,
 	}
@@ -320,6 +325,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		ID: jID,
 	}
 
+	// Resolve optional task user for the jailer. When omitted, the SDK
+	// defaults to UID/GID 0 (root), matching Firecracker's production
+	// documentation. Operators can set the Nomad task 'user' stanza to
+	// run the jailer as a non-root user.
 	if cfg.User != "" {
 		uid, gid, resolveErr := jailer.ResolveUserIDs(cfg.User)
 		if resolveErr != nil {
@@ -658,7 +667,8 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 	snapLoc := snapshot.Loc{
 		BasePath:  d.config.SnapshotPath,
 		TaskDir:   handle.taskConfig.TaskDir().Dir,
-		JobID:     handle.taskConfig.JobName,
+		Namespace: handle.taskConfig.Namespace,
+		JobID:     handle.taskConfig.JobID,
 		GroupName: handle.taskConfig.TaskGroupName,
 		TaskName:  handle.taskConfig.Name,
 	}

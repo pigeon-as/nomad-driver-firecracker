@@ -24,18 +24,19 @@ const (
 type Loc struct {
 	BasePath  string // plugin-level snapshot_path (empty = ephemeral)
 	TaskDir   string // Nomad task directory
-	JobID     string
+	Namespace string // Nomad namespace (isolates cross-tenant snapshots)
+	JobID     string // Nomad job ID (from the job stanza, not the display name)
 	GroupName string
 	TaskName  string
 }
 
 // Dir returns the directory where snapshot files are stored.
 // If BasePath is set (persistent mode), files go under
-// <BasePath>/<JobID>/<GroupName>/<TaskName>/. Otherwise they go under
+// <BasePath>/<Namespace>/<JobID>/<GroupName>/<TaskName>/. Otherwise they go under
 // <TaskDir>/snapshots/ (ephemeral, within-allocation only).
 func (l Loc) Dir() string {
 	if l.BasePath != "" {
-		return filepath.Join(l.BasePath, l.JobID, l.GroupName, l.TaskName)
+		return filepath.Join(l.BasePath, l.Namespace, l.JobID, l.GroupName, l.TaskName)
 	}
 	return filepath.Join(l.TaskDir, snapshotDirName)
 }
