@@ -17,13 +17,17 @@ func TestHasSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only one file present.
-	os.WriteFile(filepath.Join(dir, SnapshotVMStateName), []byte("x"), 0600)
+	if err := os.WriteFile(filepath.Join(dir, SnapshotVMStateName), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if HasSnapshot(taskDir) {
 		t.Fatal("expected false with only vmstate")
 	}
 
 	// Both files present.
-	os.WriteFile(filepath.Join(dir, SnapshotMemName), []byte("x"), 0600)
+	if err := os.WriteFile(filepath.Join(dir, SnapshotMemName), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if !HasSnapshot(taskDir) {
 		t.Fatal("expected true with both files")
 	}
@@ -34,8 +38,12 @@ func TestSaveAndLinkSnapshotFiles(t *testing.T) {
 	taskDir := t.TempDir()
 
 	// Create fake snapshot files in chroot.
-	os.WriteFile(filepath.Join(chroot, SnapshotVMStateName), []byte("state"), 0600)
-	os.WriteFile(filepath.Join(chroot, SnapshotMemName), []byte("mem"), 0600)
+	if err := os.WriteFile(filepath.Join(chroot, SnapshotVMStateName), []byte("state"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chroot, SnapshotMemName), []byte("mem"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	// Save (move) them to taskDir.
 	if err := SaveSnapshotFiles(chroot, taskDir); err != nil {
