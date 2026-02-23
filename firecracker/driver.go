@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -40,20 +39,12 @@ const (
 	taskHandleVersion = 1
 )
 
-// jailerID returns a globally unique, filesystem-safe identifier for the
-// jailer instance. It follows the Docker driver pattern of "taskName-allocID".
-// The Firecracker jailer requires IDs matching ^[a-zA-Z0-9-]{1,64}$, so the
-// task name is sanitized (disallowed chars replaced with hyphens) and the
-// combined result is truncated to 64 characters.
-var jailerIDRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
-
+// jailerID returns a unique, filesystem-safe identifier for the jailer
+// instance. AllocID is a 36-char UUID (hex digits and hyphens) that
+// satisfies the jailer's ^[a-zA-Z0-9-]{1,64}$ requirement and is unique
+// per allocation.
 func jailerID(cfg *drivers.TaskConfig) string {
-	name := jailerIDRe.ReplaceAllString(cfg.Name, "-")
-	id := name + "-" + cfg.AllocID
-	if len(id) > 64 {
-		id = id[:64]
-	}
-	return id
+	return cfg.AllocID
 }
 
 var (
