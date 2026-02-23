@@ -204,8 +204,7 @@ func (c *Client) ConfigureVM(ctx context.Context, cfg *models.FullVMConfiguratio
 // WaitForReady polls until the Firecracker API socket is ready. It mirrors
 // the firecracker-go-sdk's waitForSocket: first os.Stat to check the file
 // exists, then GetMachineConfiguration to verify the API is responding.
-// The SDK defaults to a 3s timeout with 10ms polling; Firecracker's
-// documented SLA is socket readiness in 6-60ms (typically ~12ms).
+// The SDK defaults to a 3s timeout with 10ms polling.
 func WaitForReady(ctx context.Context, socketPath string, timeout time.Duration) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

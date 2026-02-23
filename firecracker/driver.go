@@ -386,8 +386,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// Wait for the Firecracker API socket to become ready. The socket is
 	// created by the VMM process before the guest boots, so if it isn't
 	// available within the timeout the process failed to start.
-	// Match the firecracker-go-sdk default of 3s; the VMM creates the
-	// socket in 6-60ms (typically ~12ms) per Firecracker's spec.
+	// Matches the firecracker-go-sdk default of 3s with 10ms polling.
 	if waitErr := client.WaitForReady(d.ctx, socketPath, 3*time.Second); waitErr != nil {
 		err = fmt.Errorf("firecracker socket not ready: %v", waitErr)
 		return nil, nil, err
