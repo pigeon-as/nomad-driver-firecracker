@@ -4,11 +4,9 @@
 package jailer
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 const (
@@ -40,6 +38,9 @@ func HasSnapshot(taskDir string) bool {
 
 // SaveSnapshotFiles moves snapshot artifacts from the chroot root to the
 // snapshot directory. This must be called before DestroyTask cleans the chroot.
+// Both directories must be on the same filesystem (rename is an instant
+// metadata operation; cross-device moves would require copying the full
+// memory file and are not supported).
 func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 	dir := SnapshotDir(taskDir)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -49,16 +50,6 @@ func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 		src := filepath.Join(chrootRootPath, name)
 		dst := filepath.Join(dir, name)
 		if err := os.Rename(src, dst); err != nil {
-			// Fall back to copy+remove when moving across filesystems.
-			if errors.Is(err, syscall.EXDEV) {
-				if cpErr := copyFile(src, dst); cpErr != nil {
-					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
-				}
-				if rmErr := os.Remove(src); rmErr != nil && !os.IsNotExist(rmErr) {
-					return fmt.Errorf("remove source snapshot file %s: %w", name, rmErr)
-				}
-				continue
-			}
 			return fmt.Errorf("move snapshot file %s: %w", name, err)
 		}
 	}
@@ -66,21 +57,14 @@ func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 }
 
 // LinkSnapshotFiles hard-links snapshot artifacts from the snapshot directory
-// into the chroot root so Firecracker can load them. If the snapshot directory
-// and chroot are on different filesystems (EXDEV), the files are copied instead.
+// into the chroot root so Firecracker can load them. Both directories must
+// be on the same filesystem.
 func LinkSnapshotFiles(taskDir, chrootRootPath string) error {
 	dir := SnapshotDir(taskDir)
 	for _, name := range []string{SnapshotVMStateName, SnapshotMemName} {
 		src := filepath.Join(dir, name)
 		dst := filepath.Join(chrootRootPath, name)
 		if err := os.Link(src, dst); err != nil {
-			// Fall back to copy when hard-linking across filesystems.
-			if errors.Is(err, syscall.EXDEV) {
-				if cpErr := copyFile(src, dst); cpErr != nil {
-					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
-				}
-				continue
-			}
 			return fmt.Errorf("link snapshot file %s: %w", name, err)
 		}
 	}
