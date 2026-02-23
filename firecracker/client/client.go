@@ -68,13 +68,17 @@ func WaitForReady(ctx context.Context, socketPath string, timeout time.Duration)
 		select {
 		case <-timeoutCtx.Done():
 			if ctx.Err() != nil {
-				return fmt.Errorf("socket verification cancelled")
+				return fmt.Errorf("socket verification cancelled: %w", ctx.Err())
 			}
 			return fmt.Errorf("firecracker socket not ready after %v", timeout)
 		case <-ticker.C:
 			// Phase 1: check socket file exists (cheap syscall).
 			if _, err := os.Stat(socketPath); err != nil {
-				continue
+				if os.IsNotExist(err) {
+					continue
+				}
+				// Permission errors, invalid paths, etc. are hard failures.
+				return fmt.Errorf("failed to stat firecracker socket %q: %w", socketPath, err)
 			}
 			// Phase 2: verify API is responding.
 			if _, err := c.GetMachineConfiguration(); err != nil {
