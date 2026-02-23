@@ -38,15 +38,19 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		HealthDescription: drivers.DriverHealthy,
 	}
 
-	if _, err := os.Stat("/dev/kvm"); err != nil {
+	kvmFile, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+	if err != nil {
 		fp.Health = drivers.HealthStateUndetected
 		if os.IsNotExist(err) {
 			fp.HealthDescription = "/dev/kvm not available: KVM is required for Firecracker"
+		} else if os.IsPermission(err) {
+			fp.HealthDescription = "cannot access /dev/kvm: permission denied; ensure the Nomad client user is in the kvm group"
 		} else {
 			fp.HealthDescription = fmt.Sprintf("error accessing /dev/kvm: %v", err)
 		}
 		return fp
 	}
+	kvmFile.Close()
 
 	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
 		fp.Health = drivers.HealthStateUndetected
