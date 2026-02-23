@@ -236,12 +236,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Metadata:          driverConfig.Metadata,
 	}
 
-	// MMDS requires at least one network interface to route metadata requests.
-	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		_ = os.RemoveAll(jailerPath)
-		return nil, nil, fmt.Errorf("metadata requires networking: configure bridge mode or a network_interface block")
-	}
-
 	// Check whether a previous snapshot exists for fast restore.
 	snapLoc := snapshot.Loc{TaskDir: cfg.TaskDir().Dir}
 	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
