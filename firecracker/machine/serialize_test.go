@@ -6,8 +6,8 @@ import (
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
+
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
 func TestToSDK_NilConfig(t *testing.T) {
@@ -19,8 +19,8 @@ func TestToSDK_NilConfig(t *testing.T) {
 
 func TestToSDK_MissingKernel(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 	_, err := ToSDK(cfg, nil)
 	if err == nil {
@@ -30,8 +30,8 @@ func TestToSDK_MissingKernel(t *testing.T) {
 
 func TestToSDK_CPUShareConversion(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 
 	tests := []struct {
@@ -67,8 +67,8 @@ func TestToSDK_CPUShareConversion(t *testing.T) {
 
 func TestToSDK_MmdsConfig(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 		MmdsConfig: &models.MmdsConfig{
 			NetworkInterfaces: []string{"eth0"},
 		},
@@ -88,8 +88,8 @@ func TestToSDK_MmdsConfig(t *testing.T) {
 
 func TestToSDK_MmdsConfigNil(t *testing.T) {
 	cfg := &Config{
-		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
-		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
@@ -98,5 +98,43 @@ func TestToSDK_MmdsConfigNil(t *testing.T) {
 	}
 	if vmCfg.MmdsConfig != nil {
 		t.Error("expected MmdsConfig to be nil when not configured")
+	}
+}
+
+func TestToSDK_MetadataWithoutNetworkErrors(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		Metadata:   `{"key":"value"}`,
+	}
+
+	_, err := ToSDK(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when metadata is set without network interfaces")
+	}
+}
+
+func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{{
+			StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"},
+		}},
+		Metadata: `{"key":"value"}`,
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set when metadata is provided")
+	}
+	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V2" {
+		t.Errorf("MmdsConfig.Version = %v, want V2", vmCfg.MmdsConfig.Version)
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
 	}
 }

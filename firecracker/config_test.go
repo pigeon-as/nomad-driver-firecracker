@@ -3,9 +3,8 @@ package firecracker
 import (
 	"testing"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -58,9 +57,9 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestTaskConfig_Validate(t *testing.T) {
-	validBoot := &boot_source.BootSource{KernelImagePath: "vmlinux"}
-	rootDrive := drive.Drive{PathOnHost: "/rootfs.ext4", IsRootDevice: true}
-	dataDrive := drive.Drive{PathOnHost: "/data.ext4"}
+	validBoot := &machine.BootSource{KernelImagePath: "vmlinux"}
+	rootDrive := machine.Drive{PathOnHost: "/rootfs.ext4", IsRootDevice: true}
+	dataDrive := machine.Drive{PathOnHost: "/data.ext4"}
 
 	tests := []struct {
 		name    string
@@ -68,14 +67,14 @@ func TestTaskConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{"nil config", nil, false},
-		{"missing boot_source", &TaskConfig{Drives: []drive.Drive{rootDrive}}, true},
+		{"missing boot_source", &TaskConfig{Drives: []machine.Drive{rootDrive}}, true},
 		{"missing drives", &TaskConfig{BootSource: validBoot}, true},
-		{"no root device", &TaskConfig{BootSource: validBoot, Drives: []drive.Drive{dataDrive}}, true},
+		{"no root device", &TaskConfig{BootSource: validBoot, Drives: []machine.Drive{dataDrive}}, true},
 		{
 			"two root devices",
 			&TaskConfig{
 				BootSource: validBoot,
-				Drives: []drive.Drive{
+				Drives: []machine.Drive{
 					{PathOnHost: "/a.ext4", IsRootDevice: true},
 					{PathOnHost: "/b.ext4", IsRootDevice: true},
 				},
@@ -84,22 +83,22 @@ func TestTaskConfig_Validate(t *testing.T) {
 		},
 		{
 			"valid minimal",
-			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}},
 			false,
 		},
 		{
 			"valid metadata",
-			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: `{"key":"value"}`},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: `{"key":"value"}`},
 			false,
 		},
 		{
 			"invalid metadata JSON",
-			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: `{not json}`},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: `{not json}`},
 			true,
 		},
 		{
 			"empty metadata is valid",
-			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: ""},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: ""},
 			false,
 		},
 	}

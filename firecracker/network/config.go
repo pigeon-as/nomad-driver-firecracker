@@ -1,4 +1,4 @@
-package network_interface
+package network
 
 import (
 	"fmt"

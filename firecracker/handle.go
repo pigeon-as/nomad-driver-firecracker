@@ -17,7 +17,7 @@ import (
 	"github.com/hashicorp/nomad/drivers/shared/executor"
 	"github.com/hashicorp/nomad/plugins/drivers"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/client"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 )
 
 type taskHandle struct {
@@ -96,7 +96,7 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error
 		if h.socketPath == "" {
 			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
 		} else {
-			c := client.New(h.socketPath)
+			c := machine.NewClient(h.socketPath)
 			if err := c.SendCtrlAltDel(ctx); err != nil {
 				h.logger.Debug("ctrl+alt+del failed, forwarding signal", "signal", signalName, "err", err)
 			} else {

@@ -9,10 +9,9 @@ import (
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/drive"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
-	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
 var (
@@ -22,9 +21,9 @@ var (
 	})
 
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"boot_source":       boot_source.HCLSpec(),
-		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
-		"network_interface": hclspec.NewBlockList("network_interface", network_interface.HCLSpec()),
+		"boot_source":       machine.BootSourceHCLSpec(),
+		"drive":             hclspec.NewBlockList("drive", machine.DriveHCLSpec()),
+		"network_interface": hclspec.NewBlockList("network_interface", network.HCLSpec()),
 		"metadata":          hclspec.NewAttr("metadata", "string", false),
 		"snapshot_on_stop":  hclspec.NewAttr("snapshot_on_stop", "bool", false),
 	})
@@ -82,11 +81,11 @@ func (c *Config) Validate() error {
 }
 
 type TaskConfig struct {
-	BootSource        *boot_source.BootSource             `codec:"boot_source"`
-	Drives            []drive.Drive                       `codec:"drive"`
-	NetworkInterfaces network_interface.NetworkInterfaces `codec:"network_interface"`
-	Metadata          string                              `codec:"metadata"`
-	SnapshotOnStop    bool                                `codec:"snapshot_on_stop"`
+	BootSource        *machine.BootSource       `codec:"boot_source"`
+	Drives            []machine.Drive           `codec:"drive"`
+	NetworkInterfaces network.NetworkInterfaces `codec:"network_interface"`
+	Metadata          string                    `codec:"metadata"`
+	SnapshotOnStop    bool                      `codec:"snapshot_on_stop"`
 }
 
 func (c *TaskConfig) Validate() error {

@@ -54,6 +54,16 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 
 	if cfg.MmdsConfig != nil {
 		vmCfg.MmdsConfig = cfg.MmdsConfig
+	} else if cfg.Metadata != "" {
+		// MMDS requires at least one network interface to route metadata.
+		if len(cfg.NetworkInterfaces) == 0 {
+			return nil, errors.New("metadata requires networking: configure bridge mode or a network_interface block")
+		}
+		version := "V2"
+		vmCfg.MmdsConfig = &models.MmdsConfig{
+			Version:           &version,
+			NetworkInterfaces: []string{"eth0"},
+		}
 	}
 
 	if err := vmCfg.Validate(strfmt.Default); err != nil {

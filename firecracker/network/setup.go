@@ -1,7 +1,7 @@
 // Copyright IBM Corp. 2025
 // SPDX-License-Identifier: MPL-2.0
 
-package network_interface
+package network
 
 import (
 	"errors"
@@ -21,6 +21,24 @@ const (
 	// ethPAll matches all protocols for TC filters (linux/if_ether.h ETH_P_ALL).
 	ethPAll = 0x0003
 )
+
+// AutoSetup creates a TAP device with TC redirect inside the given network
+// namespace and returns a single-element NetworkInterfaces configured to use
+// it. This is the standard path for Nomad bridge networking: the TAP device
+// bridges VM traffic through the veth created by Nomad.
+func AutoSetup(netnsPath string) (NetworkInterfaces, error) {
+	tapName, err := SetupTapRedirect(netnsPath)
+	if err != nil {
+		return nil, err
+	}
+	return NetworkInterfaces{
+		{
+			StaticConfiguration: &StaticNetworkConfiguration{
+				HostDevName: tapName,
+			},
+		},
+	}, nil
+}
 
 // SetupTapRedirect creates a TAP device inside the given network namespace and
 // sets up bidirectional TC redirect filters between the existing veth interface
