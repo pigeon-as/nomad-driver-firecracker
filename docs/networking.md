@@ -79,7 +79,7 @@ EOF
 ```
 
 **How it works:**
-1. The driver validates the JSON at task submission time
+1. The driver validates the metadata JSON when the task is started by the Nomad client
 2. After the VM starts and the API socket is ready, the driver pushes the metadata via `PUT /mmds`
 3. MMDS is configured on the first network interface (`eth0`) using MMDS version 2
 4. The guest retrieves metadata by querying `http://169.254.169.254/` (requires networking)

@@ -229,6 +229,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
 
+	// MMDS requires at least one network interface to route metadata requests.
+	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) == 0 {
+		_ = os.RemoveAll(jailerPath)
+		return nil, nil, fmt.Errorf("metadata requires networking: configure bridge mode or a network_interface block")
+	}
+
 	// When metadata is provided and network interfaces are configured,
 	// enable MMDS on the first network interface so the guest can query
 	// instance metadata at 169.254.169.254 (Firecracker default).

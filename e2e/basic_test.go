@@ -183,7 +183,8 @@ func TestBasic_Stdout(t *testing.T) {
 }
 
 // TestMMDS_Metadata verifies that a VM boots successfully with MMDS metadata
-// configured. The metadata is set via the Firecracker API after boot.
+// configured. The metadata is set via the Firecracker API after the
+// Firecracker process starts and its API socket is ready.
 func TestMMDS_Metadata(t *testing.T) {
 	ctx := setup(t)
 	defer purge(t, ctx, "mmds")()
