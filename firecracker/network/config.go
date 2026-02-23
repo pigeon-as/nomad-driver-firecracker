@@ -8,8 +8,10 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 )
 
-var (
-	rateLimiterSpec = hclspec.NewObject(map[string]*hclspec.Spec{
+// RateLimiterHCLSpec returns the HCL block spec for a token-bucket rate
+// limiter. It is used by both network interface and drive configurations.
+func RateLimiterHCLSpec() *hclspec.Spec {
+	return hclspec.NewObject(map[string]*hclspec.Spec{
 		"bandwidth": hclspec.NewBlock("bandwidth", false, hclspec.NewObject(map[string]*hclspec.Spec{
 			"refill_time":    hclspec.NewAttr("refill_time", "number", true),
 			"size":           hclspec.NewAttr("size", "number", true),
@@ -21,6 +23,9 @@ var (
 			"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
 		})),
 	})
+}
+
+var (
 	// macAddressRegex validates MAC address format (e.g., 02:fc:00:00:00:01)
 	macAddressRegex = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$`)
 )
@@ -44,8 +49,8 @@ func HCLSpec() *hclspec.Spec {
 			"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
 			"mac_address":   hclspec.NewAttr("mac_address", "string", false),
 		})),
-		"in_rate_limiter":  hclspec.NewBlock("in_rate_limiter", false, rateLimiterSpec),
-		"out_rate_limiter": hclspec.NewBlock("out_rate_limiter", false, rateLimiterSpec),
+		"in_rate_limiter":  hclspec.NewBlock("in_rate_limiter", false, RateLimiterHCLSpec()),
+		"out_rate_limiter": hclspec.NewBlock("out_rate_limiter", false, RateLimiterHCLSpec()),
 	})
 }
 

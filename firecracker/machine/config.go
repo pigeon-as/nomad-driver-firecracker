@@ -9,22 +9,6 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
-// rateLimiterSpec is the HCL block spec for a token-bucket rate limiter,
-// reused for both drive I/O rate limiting and (in the network package)
-// for network ingress/egress.
-var rateLimiterSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-	"bandwidth": hclspec.NewBlock("bandwidth", false, hclspec.NewObject(map[string]*hclspec.Spec{
-		"refill_time":    hclspec.NewAttr("refill_time", "number", true),
-		"size":           hclspec.NewAttr("size", "number", true),
-		"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
-	})),
-	"ops": hclspec.NewBlock("ops", false, hclspec.NewObject(map[string]*hclspec.Spec{
-		"refill_time":    hclspec.NewAttr("refill_time", "number", true),
-		"size":           hclspec.NewAttr("size", "number", true),
-		"one_time_burst": hclspec.NewAttr("one_time_burst", "number", false),
-	})),
-})
-
 // BootSource describes the kernel and optional initrd for the VM.
 type BootSource struct {
 	KernelImagePath string `codec:"kernel_image_path"`
@@ -73,7 +57,7 @@ func DriveHCLSpec() *hclspec.Spec {
 		"path_on_host":   hclspec.NewAttr("path_on_host", "string", true),
 		"is_root_device": hclspec.NewAttr("is_root_device", "bool", false),
 		"is_read_only":   hclspec.NewAttr("is_read_only", "bool", false),
-		"rate_limiter":   hclspec.NewBlock("rate_limiter", false, rateLimiterSpec),
+		"rate_limiter":   hclspec.NewBlock("rate_limiter", false, network.RateLimiterHCLSpec()),
 	})
 }
 
