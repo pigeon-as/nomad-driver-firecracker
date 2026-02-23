@@ -622,18 +622,7 @@ func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout time.Duration) {
 	taskID := handle.taskConfig.ID
 
-	// Use at most 70% of the stop timeout (capped at 30s) for snapshot
-	// operations so StopTask retains budget for exec.Shutdown.
-	snapshotTimeout := timeout * 7 / 10
-	const maxSnapshotTimeout = 30 * time.Second
-	if snapshotTimeout > maxSnapshotTimeout {
-		snapshotTimeout = maxSnapshotTimeout
-	}
-	if snapshotTimeout <= 0 {
-		snapshotTimeout = timeout
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	c := client.New(handle.socketPath)
