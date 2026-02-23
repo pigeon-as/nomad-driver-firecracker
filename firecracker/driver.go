@@ -5,6 +5,8 @@ package firecracker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,12 +41,12 @@ const (
 	taskHandleVersion = 1
 )
 
-// jailerID returns a unique, filesystem-safe identifier for the jailer
-// instance. AllocID is a 36-char UUID (hex digits and hyphens) that
-// satisfies the jailer's ^[a-zA-Z0-9-]{1,64}$ requirement and is unique
-// per allocation.
+// jailerID returns a unique, filesystem-safe identifier for the jailer.
+// The jailer requires IDs matching ^[a-zA-Z0-9-]{1,64}$.
+// AllocID (36 chars) + "-" + 8-char hex hash of task name = 45 chars.
 func jailerID(cfg *drivers.TaskConfig) string {
-	return cfg.AllocID
+	h := sha256.Sum256([]byte(cfg.Name))
+	return cfg.AllocID + "-" + hex.EncodeToString(h[:4])
 }
 
 var (
