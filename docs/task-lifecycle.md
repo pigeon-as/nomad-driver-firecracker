@@ -4,19 +4,21 @@
 1. Nomad calls `StartTask()` with config
 2. Driver validates config and resources
 3. If bridge networking is active and no manual network interfaces are configured, a TAP device with TC redirect is created inside the network namespace
-4. Jailer launches Firecracker in `taskDir/jailer/<exec_file_name>/<taskName>-<allocID>/root/`
-5. Driver waits for the API socket to become ready (polls every 10ms, 3s timeout). Firecracker creates the socket before booting the guest — per the spec, this takes 6–60ms (typically ~12ms)
-6. If `metadata` is configured, MMDS data is pushed to the VM via `PUT /mmds`
-7. VM boots from specified kernel and root filesystem
-8. Socket path: `taskDir/jailer/<exec_file_name>/<taskName>-<allocID>/root/run/firecracker.socket`
+4. If `snapshot_boot` is enabled and snapshot files exist from a previous run, the driver restores from snapshot (see [Snapshots](snapshots.md)); otherwise proceeds with cold boot
+5. Jailer launches Firecracker in `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/`
+6. Driver waits for the API socket to become ready (polls every 10ms, 3s timeout). Firecracker creates the socket before booting the guest — per the spec, this takes 6–60ms (typically ~12ms)
+7. If restoring from snapshot, loads the snapshot and resumes the VM. If `metadata` is configured, MMDS data is re-pushed via `PUT /mmds`
+8. For cold boot: VM boots from specified kernel and root filesystem. If `metadata` is configured, MMDS data is pushed via `PUT /mmds`
+9. Socket path: `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/run/firecracker.socket`
 
 ## Stopping a Task
 
 1. Nomad calls `StopTask()` with timeout
-2. Driver sends Ctrl+Alt+Del via Firecracker HTTP API for graceful shutdown
-3. Driver polls until the VM exits or the timeout expires
-4. Remaining time budget is passed to the executor's `Shutdown` (SIGTERM then SIGKILL)
-5. `DestroyTask` cleans up the jailer directory
+2. If `snapshot_boot` is enabled, the driver pauses the VM, creates a snapshot, and saves snapshot files to the task directory
+3. Driver sends Ctrl+Alt+Del via Firecracker HTTP API for graceful shutdown
+4. Driver polls until the VM exits or the timeout expires
+5. Remaining time budget is passed to the executor's `Shutdown` (SIGTERM then SIGKILL)
+6. `DestroyTask` cleans up the jailer directory
 
 ## Task Recovery (after agent restart)
 

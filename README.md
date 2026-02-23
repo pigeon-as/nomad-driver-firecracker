@@ -58,6 +58,7 @@ plugin "nomad-driver-firecracker" {
     jailer {
       exec_file     = "firecracker"
       jailer_binary = "jailer"
+      chroot_base   = "/srv/jailer"
     }
   }
 }
@@ -72,6 +73,7 @@ Required fields:
 Optional fields:
 - `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
 - `metadata` - JSON string pushed to the VM via [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) (requires networking)
+- `snapshot_boot` - enable snapshot-based fast restart (see [Snapshots](docs/snapshots.md))
 
 See [example job](example/example.nomad) for complete configuration.
 
@@ -82,4 +84,5 @@ See [example job](example/example.nomad) for complete configuration.
 - [Networking](docs/networking.md) - Bridge mode, host mode, and guest configuration
 - [Filesystem Layout](docs/filesystem.md) - Directory structure and file paths
 - [Logging](docs/logs.md) - Daemon logs and guest console output
+- [Snapshots](docs/snapshots.md) - Near-instant VM resume via snapshot boot
 - [Troubleshooting](docs/troubleshooting.md) - Debugging common issues

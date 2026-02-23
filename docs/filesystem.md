@@ -1,32 +1,42 @@
 # Filesystem Layout
 
-All files for a task live within the allocation directory:
+Files for a task span two directory trees: the Nomad allocation directory and the jailer chroot base.
+
+## Allocation Directory
 
 ```
 <alloc_dir>/
 ├── alloc/                  # Nomad shared allocation data
 ├── <task_name>/            # Task directory (cfg.TaskDir().Dir)
-│   └── jailer/
-│       └── <exec_file_name>/   # Firecracker binary name (from --exec-file)
-│           └── <taskName>-<allocID>/  # Jailer instance (unique per task)
-│               └── root/       # Jailer chroot (security boundary)
-│                   ├── firecracker          # Firecracker daemon
-│                   ├── vmconfig.json        # VM configuration
-│                   ├── kernel               # Kernel image (hard-linked)
-│                   ├── initrd               # Initrd if specified (hard-linked)
-│                   ├── rootfs.img           # Root drive image (hard-linked)
-│                   ├── run/
-│                   │   └── firecracker.socket  # HTTP API socket
-│                   ├── dev/
-│                   ├── proc/
-│                   └── sys/
+│   └── snapshots/          # Snapshot files (vmstate + memory), persists across restarts
 └── secrets/                # Secrets provisioned by Nomad
+```
+
+## Jailer Chroot
+
+The jailer chroot lives outside the allocation directory, under `chroot_base` (default `/srv/jailer`):
+
+```
+<chroot_base>/                         # e.g. /srv/jailer
+└── <exec_file_name>/                  # e.g. firecracker
+    └── <taskName>-<allocID>/          # Jailer instance ID
+        └── root/                      # Jailer chroot (security boundary)
+            ├── firecracker            # Firecracker binary (hard-linked)
+            ├── vmconfig.json          # VM configuration
+            ├── kernel                 # Kernel image (hard-linked)
+            ├── initrd                 # Initrd if specified (hard-linked)
+            ├── rootfs.img             # Root drive image (hard-linked)
+            ├── run/
+            │   └── firecracker.socket # HTTP API socket
+            ├── dev/
+            ├── proc/
+            └── sys/
 ```
 
 ## Jailer
 - Runs Firecracker in chroot for security isolation
 - Binary: configured in plugin config (default: `jailer`)
-- Chroot path: always relative to taskDir (not user-configurable)
+- Chroot base: configured via `chroot_base` (default: `/srv/jailer`); must be short to keep the API socket path under the Unix domain socket limit (107 bytes)
 - Cleanup: automatic on task destroy
 - **File Isolation**: Uses `pivot_root()` to establish security boundary - Firecracker cannot access host paths outside chroot
 
@@ -49,13 +59,11 @@ The driver automatically handles guest file access via **hard linking**:
 ```hcl
 config {
   boot_source {
-    # Use absolute paths - driver handles linking into chroot
     kernel_image_path = "/opt/vm-images/kernel"
     boot_args         = "console=ttyS0 root=/dev/vda"
   }
   
   drive {
-    # Use absolute paths - driver handles linking into chroot  
     path_on_host   = "/opt/vm-images/rootfs.ext4"
     is_root_device = true
     is_read_only   = false
