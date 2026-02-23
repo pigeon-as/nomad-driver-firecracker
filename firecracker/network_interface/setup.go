@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2025
 // SPDX-License-Identifier: MPL-2.0
 
+//go:build linux
+
 package network_interface
 
 import (
@@ -76,6 +78,8 @@ func SetupTapRedirect(netnsPath string) (string, error) {
 }
 
 // findVeth returns the first non-loopback link in the current network namespace.
+// In a Nomad bridge namespace there is exactly one: the veth peer. This matches
+// the approach used by tc-redirect-tap.
 func findVeth() (netlink.Link, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
