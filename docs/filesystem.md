@@ -19,7 +19,7 @@ The jailer chroot lives outside the allocation directory, under `chroot_base` (d
 ```
 <chroot_base>/                         # e.g. /srv/jailer
 └── <exec_file_name>/                  # e.g. firecracker
-    └── <allocID>/                     # Jailer instance ID
+    └── <allocID>-<hash>/              # Jailer instance ID (unique per task)
         └── root/                      # Jailer chroot (security boundary)
             ├── firecracker            # Firecracker binary (hard-linked)
             ├── kernel                 # Kernel image (hard-linked)
