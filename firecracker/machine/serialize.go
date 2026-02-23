@@ -37,9 +37,6 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 		if res.NomadResources.Cpu.CpuShares > 0 {
 			shares := res.NomadResources.Cpu.CpuShares
 			vcpuCount := int64((shares + 1023) / 1024)
-			if vcpuCount < 1 {
-				vcpuCount = 1
-			}
 			mc.VcpuCount = &vcpuCount
 		}
 		if res.NomadResources.Memory.MemoryMB > 0 {

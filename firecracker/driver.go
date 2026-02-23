@@ -429,7 +429,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		taskConfig:   cfg,
 		procState:    drivers.TaskStateRunning,
 		startedAt:    time.Now().Round(time.Millisecond),
-		exitResult:   &drivers.ExitResult{},
 		logger:       d.logger,
 		socketPath:   socketPath,
 	}
@@ -455,10 +454,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	if handle == nil {
 		return errors.New("handle cannot be nil")
-	}
-
-	if handle.Version != taskHandleVersion {
-		return fmt.Errorf("incompatible task handle version: got %d, expected %d", handle.Version, taskHandleVersion)
 	}
 
 	if _, ok := d.tasks.Get(handle.Config.ID); ok {
