@@ -45,7 +45,7 @@ Snapshot files (`vmstate` and `memory`) are stored in `<task_dir>/snapshots/`. T
 
 ## Limitations
 
-- **Same filesystem required** — `chroot_base` and Nomad's `data_dir` must be on the same filesystem. Snapshot files are moved and hard-linked (instant metadata operations, zero data copy). If they are on different mounts, snapshotting is automatically skipped with a warning and the next start falls back to cold boot.
+- **Same filesystem required** — `chroot_base` and Nomad's `data_dir` must be on the same filesystem. Snapshot files are moved and hard-linked (instant metadata operations, zero data copy). If they are on different mounts, snapshot save will fail with a warning and the next start will fall back to cold boot.
 - Snapshots only persist within the same allocation. Config changes create a new allocation → cold boot.
 - **Guest clock drift** — the guest OS clock is frozen at snapshot time. After resume the guest clock will be behind wall time. The guest should run an NTP client (e.g. `chrony`) to resync after resume.
 - MMDS metadata is re-pushed after every restore (not persisted in the snapshot).
