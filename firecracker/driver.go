@@ -226,7 +226,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
-		d.logger.Debug("created tap for bridge networking", "netns", cfg.NetworkIsolation.Path)
+		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
 	}
 
 	vmCfg := &machine.Config{
