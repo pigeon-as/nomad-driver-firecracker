@@ -95,20 +95,24 @@ func waitForRunning(t *testing.T, ctx context.Context, job string) {
 	}
 }
 
-func waitForLogs(t *testing.T, ctx context.Context, allocID, task string) string {
+// waitForLogs polls until the task's stdout contains substr or the timeout expires.
+func waitForLogs(t *testing.T, ctx context.Context, allocID, task, substr string) string {
 	t.Helper()
 	deadline := time.After(timeout)
+	var logs string
 	for {
-		cmd := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task)
-		out, err := cmd.CombinedOutput()
+		out, err := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task).CombinedOutput()
 		if err == nil {
-			return strings.TrimSpace(string(out))
+			logs = strings.TrimSpace(string(out))
+			if strings.Contains(logs, substr) {
+				return logs
+			}
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for logs from task %q: %s", task, string(out))
+			t.Fatalf("timed out waiting for %q in task %q logs:\n%s", substr, task, logs)
 		default:
-			time.Sleep(2 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }
@@ -178,7 +182,7 @@ func TestBasic_Stdout(t *testing.T) {
 	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
 	must.SliceNotEmpty(t, allocID)
 
-	logs := waitForLogs(t, ctx, allocID[1], "firecracker")
+	logs := waitForLogs(t, ctx, allocID[1], "firecracker", "Linux")
 	must.StrContains(t, logs, "Linux")
 }
 
