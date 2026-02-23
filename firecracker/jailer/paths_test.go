@@ -107,3 +107,16 @@ func TestFindAllTaskDirs(t *testing.T) {
 		t.Fatalf("expected 2 dirs, got %d", len(dirs))
 	}
 }
+
+func TestValidateSocketPath(t *testing.T) {
+	// Short path should pass.
+	if err := ValidateSocketPath("/srv/jailer", "task-1", "firecracker"); err != nil {
+		t.Fatalf("expected valid: %v", err)
+	}
+
+	// Path exceeding 107 bytes should fail.
+	longID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := ValidateSocketPath("/srv/jailer", longID, "firecracker"); err == nil {
+		t.Fatal("expected error for long socket path")
+	}
+}
