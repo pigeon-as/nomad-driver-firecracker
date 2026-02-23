@@ -127,8 +127,10 @@ func (c *TaskConfig) Validate() error {
 		}
 	}
 
-	if err := c.Balloon.Validate(); err != nil {
-		return err
+	if c.Balloon != nil {
+		if err := c.Balloon.Validate(); err != nil {
+			return fmt.Errorf("balloon: %v", err)
+		}
 	}
 
 	if c.Metadata != "" {

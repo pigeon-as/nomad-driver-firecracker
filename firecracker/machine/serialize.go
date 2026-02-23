@@ -48,8 +48,10 @@ func (b *Balloon) ToSDK() *models.Balloon {
 		return nil
 	}
 	return &models.Balloon{
-		AmountMib:             int64Ptr(b.AmountMiB),
-		DeflateOnOom:          boolPtr(b.DeflateOnOOM),
+		AmountMib:    int64Ptr(b.AmountMiB),
+		DeflateOnOom: boolPtr(b.DeflateOnOOM),
+		// SDK field is StatsPollingIntervals (plural); our config uses the
+		// singular StatsPollingInterval. Both represent seconds.
 		StatsPollingIntervals: b.StatsPollingInterval,
 	}
 }
