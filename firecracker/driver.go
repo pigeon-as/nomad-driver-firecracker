@@ -195,6 +195,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, err
 	}
 
+	// Clean any leftover chroot from a previous run. On a Nomad task
+	// restart (StopTask → StartTask, no DestroyTask), the old chroot is
+	// still present. The jailer requires a clean directory tree on start.
+	jailerPath := jailer.TaskDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
+	_ = os.RemoveAll(jailerPath)
+
 	paths, err := jailer.BuildPaths(jConfig.ChrootBase, jID, jConfig.ExecFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create jailer paths: %v", err)
@@ -202,7 +208,6 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	configPath := paths.ConfigPathHost
 	configPathChroot := paths.ConfigPathChroot
-	jailerPath := jailer.TaskDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
 
 	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
 		_ = os.RemoveAll(jailerPath)
