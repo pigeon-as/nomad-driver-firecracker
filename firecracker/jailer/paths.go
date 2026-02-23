@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 )
 
-// Paths holds jailer and chroot paths used by the driver.
+// Paths holds jailer chroot paths used by the driver.
 type Paths struct {
-	ConfigPathHost   string
-	ConfigPathChroot string
+	// ChrootRoot is the root directory inside the jailer chroot
+	// (<chrootBase>/<exec>/<id>/root).
+	ChrootRoot string
 }
 
 // unixPathMax is the maximum usable length for a Unix domain socket path.
@@ -22,17 +23,13 @@ func TaskDir(chrootBase, taskID, execFile string) string {
 	return filepath.Join(chrootBase, filepath.Base(execFile), taskID)
 }
 
-// BuildPaths creates the jailer chroot directory and returns config file paths.
-func BuildPaths(chrootBase, taskID, execFile string) (*Paths, error) {
+// BuildChrootDir creates the jailer chroot root directory and returns its path.
+func BuildChrootDir(chrootBase, taskID, execFile string) (string, error) {
 	root := filepath.Join(TaskDir(chrootBase, taskID, execFile), "root")
 	if err := os.MkdirAll(root, 0700); err != nil {
-		return nil, err
+		return "", err
 	}
-
-	return &Paths{
-		ConfigPathHost:   filepath.Join(root, "vmconfig.json"),
-		ConfigPathChroot: "/vmconfig.json",
-	}, nil
+	return root, nil
 }
 
 // FindAllTaskDirs discovers all <chrootBase>/*/<task_id> directories via glob.

@@ -37,7 +37,6 @@ The jailer chroot lives outside the allocation directory, under `chroot_base` (d
     └── <taskName>-<allocID>/          # Jailer instance ID
         └── root/                      # Jailer chroot (security boundary)
             ├── firecracker            # Firecracker binary (hard-linked)
-            ├── vmconfig.json          # VM configuration
             ├── kernel                 # Kernel image (hard-linked)
             ├── initrd                 # Initrd if specified (hard-linked)
             ├── rootfs.img             # Root drive image (hard-linked)
@@ -66,7 +65,7 @@ The driver automatically handles guest file access via **hard linking**:
    - Safer than symlinks (cannot be exploited to escape chroot)
 3. **Path Validation**: Before hard linking, paths are validated against allocation directory and optional `image_paths` allowlist
 4. **Symlink Resolution**: Symlinks are resolved and re-validated against boundaries before linking
-5. **Relative Paths**: Once linked, paths are converted to relative filenames for use in `vmconfig.json`
+5. **Relative Paths**: Once linked, paths are converted to relative filenames for the Firecracker API
 
 
 ### Configuration Best Practices
@@ -89,5 +88,5 @@ config {
 ## Network
 - **Bridge mode**: When Nomad provides network isolation (bridge/group mode) and no manual network interfaces are configured, the driver creates a TAP device (`tap0`) inside the network namespace with bidirectional TC redirect filters between the veth and TAP. This is idempotent across task restarts.
 - **Host mode**: No TAP setup; manual `network_interface` configuration is required
-- Interface configuration: included in initial `vmconfig.json` passed to Firecracker at startup
+- Interface configuration: configured via Firecracker API calls after the socket is ready
 - Guest IP configuration: handled inside the VM (cloud-init, systemd-networkd, or custom init)

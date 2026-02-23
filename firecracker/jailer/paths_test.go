@@ -14,23 +14,20 @@ func TestTaskDir(t *testing.T) {
 	}
 }
 
-func TestBuildPaths(t *testing.T) {
+func TestBuildChrootDir(t *testing.T) {
 	tmp := t.TempDir()
 
-	paths, err := BuildPaths(tmp, "task-1", "firecracker")
+	chrootRoot, err := BuildChrootDir(tmp, "task-1", "firecracker")
 	if err != nil {
-		t.Fatalf("BuildPaths: %v", err)
+		t.Fatalf("BuildChrootDir: %v", err)
 	}
 
 	root := filepath.Join(tmp, "firecracker", "task-1", "root")
 	if _, err := os.Stat(root); err != nil {
 		t.Fatalf("root dir not created: %v", err)
 	}
-	if paths.ConfigPathHost != filepath.Join(root, "vmconfig.json") {
-		t.Errorf("ConfigPathHost = %q", paths.ConfigPathHost)
-	}
-	if paths.ConfigPathChroot != "/vmconfig.json" {
-		t.Errorf("ConfigPathChroot = %q", paths.ConfigPathChroot)
+	if chrootRoot != root {
+		t.Errorf("ChrootRoot = %q, want %q", chrootRoot, root)
 	}
 }
 

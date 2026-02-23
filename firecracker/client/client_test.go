@@ -27,4 +27,22 @@ func TestNilClient(t *testing.T) {
 	if _, err := c.GetMachineConfiguration(); err == nil {
 		t.Fatal("expected error from nil client")
 	}
+	if err := c.PutMachineConfiguration(ctx, nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
+	if err := c.PutBootSource(ctx, nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
+	if err := c.PutDrive(ctx, "d", nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
+	if err := c.PutNetworkInterface(ctx, "n", nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
+	if err := c.PutMmdsConfig(ctx, nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
+	if err := c.StartInstance(ctx); err == nil {
+		t.Fatal("expected error from nil client")
+	}
 }

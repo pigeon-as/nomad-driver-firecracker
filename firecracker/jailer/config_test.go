@@ -21,7 +21,7 @@ func TestBuildArgs(t *testing.T) {
 		CgroupVersion: "2",
 	}
 
-	args, err := cfg.BuildArgs(params, "--config-file", "/vmconfig.json")
+	args, err := cfg.BuildArgs(params)
 	if err != nil {
 		t.Fatalf("BuildArgs: %v", err)
 	}

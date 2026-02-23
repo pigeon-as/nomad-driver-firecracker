@@ -32,7 +32,7 @@ job "example" {
 
 1. **First start** — normal cold boot (no snapshot exists yet)
 2. **StopTask** — pauses the VM, creates a snapshot (vmstate + memory), and saves the snapshot files to the snapshot directory
-3. **Next start** — detects `snapshot_on_stop = true` and existing snapshot files, links them into the new jailer chroot, starts Firecracker in API-only mode (no `--config-file`), loads the snapshot, and resumes the VM
+3. **Next start** — detects `snapshot_on_stop = true` and existing snapshot files, links them into the new jailer chroot, starts Firecracker in API-only mode, loads the snapshot, and resumes the VM
 4. **Snapshot failure** — if any step fails, the snapshot is discarded and the next start falls back to cold boot
 
 ## Snapshot Storage

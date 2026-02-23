@@ -125,12 +125,12 @@ func (d *FirecrackerDriverPlugin) Fingerprint(ctx context.Context) (<-chan *driv
 	return ch, nil
 }
 
-func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, configPath, allocDir string) error {
+func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, chrootRoot, allocDir string) error {
 	if d.config == nil {
 		return fmt.Errorf("driver configuration not initialized")
 	}
 
-	jailerRootDir := filepath.Dir(configPath)
+	jailerRootDir := chrootRoot
 
 	guestCfg := &jailer.GuestFileConfig{
 		Kernel: cfg.BootSource.KernelImagePath,
@@ -204,15 +204,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, fmt.Errorf("failed to clean existing jailer chroot %s: %v", jailerPath, err)
 	}
 
-	paths, err := jailer.BuildPaths(jConfig.ChrootBase, jID, jConfig.ExecFile)
+	chrootRoot, err := jailer.BuildChrootDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create jailer paths: %v", err)
+		return nil, nil, fmt.Errorf("failed to create jailer chroot: %v", err)
 	}
 
-	configPath := paths.ConfigPathHost
-	configPathChroot := paths.ConfigPathChroot
-
-	if err := d.prepareGuestFiles(&driverConfig, configPath, cfg.AllocDir); err != nil {
+	if err := d.prepareGuestFiles(&driverConfig, chrootRoot, cfg.AllocDir); err != nil {
 		_ = os.RemoveAll(jailerPath)
 		return nil, nil, err
 	}
@@ -267,21 +264,23 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
 
+	// Validate the VM configuration eagerly, before launching the process.
+	var vmSDK *models.FullVMConfiguration
+	if !restoreFromSnapshot {
+		vmSDK, err = machine.ToSDK(vmCfg, cfg.Resources)
+		if err != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, fmt.Errorf("invalid vm configuration: %v", err)
+		}
+	}
+
 	if restoreFromSnapshot {
 		// Link snapshot files into the chroot so Firecracker can load them.
-		chrootRoot := filepath.Dir(configPath)
 		if err := snapLoc.Link(chrootRoot); err != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to link snapshot files: %v", err)
 		}
 		d.logger.Info("restoring from snapshot", "task_id", cfg.ID)
-	} else {
-		_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
-		if err != nil {
-			_ = os.RemoveAll(jailerPath)
-			return nil, nil, fmt.Errorf("failed to build vm configuration: %v", err)
-		}
-		d.logger.Debug("generated vm configuration", "path", configPath)
 	}
 
 	d.logger.Info("starting task", "task_id", cfg.ID, "alloc_id", cfg.AllocID)
@@ -357,14 +356,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	localJConfig := *jConfig
 	localJConfig.ExecFile = fcBin
 
-	// When restoring from snapshot, start Firecracker in API-only mode
-	// (no --config-file) so we can call LoadSnapshot before any other config.
-	var fcArgs []string
-	if !restoreFromSnapshot {
-		fcArgs = []string{"--config-file", configPathChroot}
-	}
-
-	jArgs, err := localJConfig.BuildArgs(params, fcArgs...)
+	// Always start Firecracker in API-only mode (no --config-file),
+	// matching the firecracker-go-sdk pattern. Configuration is applied
+	// via sequential API calls after the socket is ready.
+	jArgs, err := localJConfig.BuildArgs(params)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
 		return nil, nil, err
@@ -398,19 +393,29 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, err
 	}
 
-	// When restoring from snapshot, load it via API and resume the VM.
-	// On failure, remove the snapshot so the next restart cold boots.
+	// Configure the VM via the Firecracker API.
+	c := client.New(socketPath)
+	configCtx, configCancel := context.WithTimeout(d.ctx, 10*time.Second)
+	defer configCancel()
+
 	if restoreFromSnapshot {
-		loadCtx, loadCancel := context.WithTimeout(d.ctx, 5*time.Second)
-		defer loadCancel()
-		c := client.New(socketPath)
-		if loadErr := c.LoadSnapshot(loadCtx, snapshot.VMStatePath, snapshot.MemPath); loadErr != nil {
+		// Load a previously saved snapshot and resume the VM.
+		// On failure, remove the snapshot so the next restart cold boots.
+		if loadErr := c.LoadSnapshot(configCtx, snapshot.VMStatePath, snapshot.MemPath); loadErr != nil {
 			d.logger.Warn("snapshot restore failed, removing snapshot for cold boot on next restart", "task_id", cfg.ID, "err", loadErr)
 			_ = snapLoc.RemoveDir()
 			err = fmt.Errorf("failed to load snapshot: %v", loadErr)
 			return nil, nil, err
 		}
 		d.logger.Info("restored from snapshot", "task_id", cfg.ID)
+	} else {
+		// Cold boot: configure each resource via sequential API calls,
+		// following the firecracker-go-sdk handler chain order.
+		if configErr := c.ConfigureVM(configCtx, vmSDK); configErr != nil {
+			err = fmt.Errorf("failed to configure VM via API: %v", configErr)
+			return nil, nil, err
+		}
+		d.logger.Info("VM configured and started via API", "task_id", cfg.ID)
 	}
 
 	// If the user provided MMDS metadata, push it to the VM.
@@ -422,10 +427,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
 			return nil, nil, err
 		}
-		mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
-		defer mmdsCancel()
-		c := client.New(socketPath)
-		if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
+		if mmdsErr := c.PutMmds(configCtx, metadata); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err
 		}

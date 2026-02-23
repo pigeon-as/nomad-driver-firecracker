@@ -8,7 +8,7 @@
 5. Jailer launches Firecracker in `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/`
 6. Driver waits for the API socket to become ready (polls every 10ms, 3s timeout). Firecracker creates the socket before booting the guest — per the spec, this takes 6–60ms (typically ~12ms)
 7. If restoring from snapshot, loads the snapshot and resumes the VM. If `metadata` is configured, MMDS data is re-pushed via `PUT /mmds`
-8. For cold boot: VM boots from specified kernel and root filesystem. If `metadata` is configured, MMDS data is pushed via `PUT /mmds`
+8. For cold boot: configures the VM via sequential API calls (machine config, boot source, drives, network interfaces) then starts the instance. If `metadata` is configured, MMDS data is pushed via `PUT /mmds`
 9. Socket path: `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/run/firecracker.socket`
 
 ## Stopping a Task
