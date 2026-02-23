@@ -197,3 +197,31 @@ func TestMMDS_Metadata(t *testing.T) {
 	jobStatus := run(t, ctx, "nomad", "job", "status", "mmds")
 	must.RegexMatch(t, runningRe, jobStatus)
 }
+
+// TestSnapshot_Restart verifies the snapshot boot feature by cold booting
+// a VM, restarting the allocation (which triggers snapshot save + restore),
+// and confirming the task comes back up running.
+func TestSnapshot_Restart(t *testing.T) {
+	ctx := setup(t)
+	defer purge(t, ctx, "snapshot")()
+
+	// Cold boot.
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/snapshot.hcl")
+	waitForRunning(t, ctx, "snapshot")
+
+	// Extract allocation ID.
+	allocs := run(t, ctx, "nomad", "job", "allocs", "-json", "snapshot")
+	allocID := regexp.MustCompile(`"ID"\s*:\s*"([^"]+)"`).FindStringSubmatch(allocs)
+	must.SliceNotEmpty(t, allocID)
+
+	// Restart the allocation — triggers StopTask (snapshot save) followed
+	// by StartTask (snapshot restore) within the same allocation.
+	_ = run(t, ctx, "nomad", "alloc", "restart", allocID[1])
+
+	// Wait for the task to come back up after snapshot restore.
+	pause()
+	waitForRunning(t, ctx, "snapshot")
+
+	jobStatus := run(t, ctx, "nomad", "job", "status", "snapshot")
+	must.RegexMatch(t, runningRe, jobStatus)
+}

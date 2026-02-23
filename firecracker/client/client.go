@@ -50,6 +50,45 @@ func (c *Client) PutMmds(ctx context.Context, metadata interface{}) error {
 	return err
 }
 
+// PauseVM pauses the microVM by setting its state to "Paused".
+func (c *Client) PauseVM(ctx context.Context) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	vm := &models.VM{State: strPtr(models.VMStatePaused)}
+	_, err := c.client.PatchVM(ctx, vm)
+	return err
+}
+
+// CreateSnapshot creates a full snapshot of the paused microVM.
+// Paths are relative to the Firecracker chroot root.
+func (c *Client) CreateSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	params := &models.SnapshotCreateParams{
+		SnapshotPath: &snapshotPath,
+		MemFilePath:  &memFilePath,
+	}
+	_, err := c.client.CreateSnapshot(ctx, params)
+	return err
+}
+
+// LoadSnapshot loads a previously saved snapshot and optionally resumes the VM.
+// Paths are relative to the Firecracker chroot root.
+func (c *Client) LoadSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	params := &models.SnapshotLoadParams{
+		SnapshotPath: &snapshotPath,
+		MemFilePath:  &memFilePath,
+		ResumeVM:     true,
+	}
+	_, err := c.client.LoadSnapshot(ctx, params)
+	return err
+}
+
 // WaitForReady polls until the Firecracker API socket is ready. It mirrors
 // the firecracker-go-sdk's waitForSocket: first os.Stat to check the file
 // exists, then GetMachineConfiguration to verify the API is responding.
