@@ -129,7 +129,7 @@ func (c *TaskConfig) Validate() error {
 
 	if c.Balloon != nil {
 		if err := c.Balloon.Validate(); err != nil {
-			return fmt.Errorf("balloon: %v", err)
+			return err
 		}
 	}
 

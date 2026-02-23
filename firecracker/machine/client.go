@@ -174,7 +174,7 @@ func (c *Client) PatchBalloon(ctx context.Context, update *models.BalloonUpdate)
 
 // StartInstance boots the microVM by sending an InstanceStart action.
 // All pre-boot configuration (machine config, boot source, drives,
-// network interfaces) must be applied before calling this.
+// network interfaces, balloon) must be applied before calling this.
 func (c *Client) StartInstance(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
