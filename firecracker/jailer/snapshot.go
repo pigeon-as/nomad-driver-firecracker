@@ -4,6 +4,7 @@
 package jailer
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 		dst := filepath.Join(dir, name)
 		if err := os.Rename(src, dst); err != nil {
 			// Fall back to copy+remove when moving across filesystems.
-			if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+			if errors.Is(err, syscall.EXDEV) {
 				if cpErr := copyFile(src, dst); cpErr != nil {
 					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
 				}
@@ -74,7 +75,7 @@ func LinkSnapshotFiles(taskDir, chrootRootPath string) error {
 		dst := filepath.Join(chrootRootPath, name)
 		if err := os.Link(src, dst); err != nil {
 			// Fall back to copy when hard-linking across filesystems.
-			if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+			if errors.Is(err, syscall.EXDEV) {
 				if cpErr := copyFile(src, dst); cpErr != nil {
 					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
 				}

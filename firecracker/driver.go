@@ -679,21 +679,19 @@ func (d *FirecrackerDriverPlugin) DestroyTask(taskID string, force bool) error {
 
 	d.tasks.Delete(taskID)
 
-	if handle.taskConfig != nil && handle.taskConfig.TaskDir() != nil {
-		var dirs []string
-		if handle.socketPath != "" {
-			dirs = []string{jailer.TaskDirFromSocketPath(handle.socketPath)}
-		} else {
-			var findErr error
-			dirs, findErr = jailer.FindAllTaskDirs(d.config.Jailer.ChrootBase, jailerID(handle.taskConfig))
-			if findErr != nil {
-				handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
-			}
+	var dirs []string
+	if handle.socketPath != "" {
+		dirs = []string{jailer.TaskDirFromSocketPath(handle.socketPath)}
+	} else {
+		var findErr error
+		dirs, findErr = jailer.FindAllTaskDirs(d.config.Jailer.ChrootBase, jailerID(handle.taskConfig))
+		if findErr != nil {
+			handle.logger.Warn("failed to discover jailer directory for cleanup", "task_id", handle.taskConfig.ID, "err", findErr)
 		}
-		for _, dir := range dirs {
-			if err := os.RemoveAll(dir); err != nil {
-				handle.logger.Warn("failed to clean up jailer directory", "path", dir, "err", err)
-			}
+	}
+	for _, dir := range dirs {
+		if err := os.RemoveAll(dir); err != nil {
+			handle.logger.Warn("failed to clean up jailer directory", "path", dir, "err", err)
 		}
 	}
 
