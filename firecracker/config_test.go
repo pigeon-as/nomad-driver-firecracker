@@ -87,6 +87,21 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}},
 			false,
 		},
+		{
+			"valid metadata",
+			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: `{"key":"value"}`},
+			false,
+		},
+		{
+			"invalid metadata JSON",
+			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: `{not json}`},
+			true,
+		},
+		{
+			"empty metadata is valid",
+			&TaskConfig{BootSource: validBoot, Drives: []drive.Drive{rootDrive}, Metadata: ""},
+			false,
+		},
 	}
 
 	for _, tt := range tests {

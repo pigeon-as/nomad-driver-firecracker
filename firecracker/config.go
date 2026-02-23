@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -24,6 +25,7 @@ var (
 		"boot_source":       boot_source.HCLSpec(),
 		"drive":             hclspec.NewBlockList("drive", drive.HCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", network_interface.HCLSpec()),
+		"metadata":          hclspec.NewAttr("metadata", "string", false),
 	})
 
 	capabilities = &drivers.Capabilities{
@@ -82,6 +84,7 @@ type TaskConfig struct {
 	BootSource        *boot_source.BootSource             `codec:"boot_source"`
 	Drives            []drive.Drive                       `codec:"drive"`
 	NetworkInterfaces network_interface.NetworkInterfaces `codec:"network_interface"`
+	Metadata          string                              `codec:"metadata"`
 }
 
 func (c *TaskConfig) Validate() error {
@@ -120,5 +123,12 @@ func (c *TaskConfig) Validate() error {
 			return err
 		}
 	}
+
+	if c.Metadata != "" {
+		if !json.Valid([]byte(c.Metadata)) {
+			return errors.New("metadata must be valid JSON")
+		}
+	}
+
 	return nil
 }

@@ -71,6 +71,7 @@ Required fields:
 
 Optional fields:
 - `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
+- `metadata` - JSON string pushed to the VM via [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) (requires networking)
 
 See [example job](example/example.nomad) for complete configuration.
 

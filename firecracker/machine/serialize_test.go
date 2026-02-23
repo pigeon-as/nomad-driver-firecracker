@@ -3,6 +3,7 @@ package machine
 import (
 	"testing"
 
+	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/boot_source"
@@ -61,5 +62,41 @@ func TestToSDK_CPUShareConversion(t *testing.T) {
 		if got := *vmCfg.MachineConfig.VcpuCount; got != tt.wantVCPU {
 			t.Errorf("shares=%d: vcpu_count = %d, want %d", tt.shares, got, tt.wantVCPU)
 		}
+	}
+}
+
+func TestToSDK_MmdsConfig(t *testing.T) {
+	cfg := &Config{
+		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		MmdsConfig: &models.MmdsConfig{
+			NetworkInterfaces: []string{"eth0"},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
+func TestToSDK_MmdsConfigNil(t *testing.T) {
+	cfg := &Config{
+		BootSource: &boot_source.BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []drive.Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig != nil {
+		t.Error("expected MmdsConfig to be nil when not configured")
 	}
 }

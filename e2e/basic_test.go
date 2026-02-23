@@ -181,3 +181,19 @@ func TestBasic_Stdout(t *testing.T) {
 	logs := waitForLogs(t, ctx, allocID[1], "firecracker")
 	must.StrContains(t, logs, "Linux")
 }
+
+// TestMMDS_Metadata verifies that a VM boots successfully with MMDS metadata
+// configured. The metadata is set via the Firecracker API after the
+// Firecracker process starts and its API socket is ready.
+func TestMMDS_Metadata(t *testing.T) {
+	ctx := setup(t)
+	defer purge(t, ctx, "mmds")()
+
+	_ = run(t, ctx, "nomad", "job", "run", "./jobs/mmds.hcl")
+	waitForRunning(t, ctx, "mmds")
+
+	// Verify job reached running state — this confirms MMDS config was
+	// accepted by Firecracker and PutMmds succeeded without errors.
+	jobStatus := run(t, ctx, "nomad", "job", "status", "mmds")
+	must.RegexMatch(t, runningRe, jobStatus)
+}

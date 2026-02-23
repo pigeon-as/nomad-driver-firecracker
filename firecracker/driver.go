@@ -5,6 +5,7 @@ package firecracker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/drivers/shared/executor"
@@ -226,6 +228,22 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 	}
+
+	// MMDS requires at least one network interface to route metadata requests.
+	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) == 0 {
+		_ = os.RemoveAll(jailerPath)
+		return nil, nil, fmt.Errorf("metadata requires networking: configure bridge mode or a network_interface block")
+	}
+
+	// When metadata is provided and network interfaces are configured,
+	// enable MMDS on the first network interface so the guest can query
+	// instance metadata at 169.254.169.254 (Firecracker default).
+	if driverConfig.Metadata != "" && len(driverConfig.NetworkInterfaces) > 0 {
+		vmCfg.MmdsConfig = &models.MmdsConfig{
+			NetworkInterfaces: []string{"eth0"},
+		}
+	}
+
 	_, err = machine.BuildVMConfig(configPath, vmCfg, cfg.Resources)
 	if err != nil {
 		_ = os.RemoveAll(jailerPath)
@@ -233,7 +251,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 	d.logger.Debug("generated vm configuration", "path", configPath)
 
-	d.logger.Info("starting task", "driver_cfg", hclog.Fmt("%+v", driverConfig))
+	d.logger.Info("starting task", "task_id", cfg.ID, "alloc_id", cfg.AllocID)
 	if len(driverConfig.NetworkInterfaces) > 0 {
 		d.logger.Debug("network configuration", "network", driverConfig.NetworkInterfaces)
 	}
@@ -330,14 +348,31 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 	d.logger.Debug("jailer command", "cmd", jailerBin, "args", jArgs, "socket", socketPath)
 
-	// Best-effort socket readiness check. For long-running VMs this confirms
-	// firecracker is ready for API calls. For fast-exiting VMs (e.g. batch
-	// jobs) the process may finish before the socket responds, which is fine —
-	// the run() goroutine detects completion via the executor.
-	if err := client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
-		d.logger.Warn("firecracker socket not ready, VM may have already exited", "task_id", cfg.ID, "err", err)
-	} else {
-		d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
+	// Wait for the Firecracker API socket to become ready. The socket is
+	// created by the VMM process before the guest boots, so if it isn't
+	// available within the timeout the process failed to start.
+	// Match the firecracker-go-sdk default of 3s; the VMM creates the
+	// socket in 6-60ms (typically ~12ms) per Firecracker's spec.
+	if waitErr := client.WaitForReady(d.ctx, socketPath, 3*time.Second); waitErr != nil {
+		err = fmt.Errorf("firecracker socket not ready: %v", waitErr)
+		return nil, nil, err
+	}
+
+	// If the user provided MMDS metadata, push it to the VM.
+	if driverConfig.Metadata != "" {
+		var metadata interface{}
+		if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
+			err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
+			return nil, nil, err
+		}
+		mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
+		defer mmdsCancel()
+		c := client.New(socketPath)
+		if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
+			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
+			return nil, nil, err
+		}
+		d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
 	}
 
 	h := &taskHandle{
@@ -373,6 +408,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error {
 	if handle == nil {
 		return errors.New("handle cannot be nil")
+	}
+
+	if handle.Version != taskHandleVersion {
+		return fmt.Errorf("incompatible task handle version: got %d, expected %d", handle.Version, taskHandleVersion)
 	}
 
 	if _, ok := d.tasks.Get(handle.Config.ID); ok {

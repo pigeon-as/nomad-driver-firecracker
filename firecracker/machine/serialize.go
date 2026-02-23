@@ -55,6 +55,10 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 		return nil, errors.New("boot_source.kernel_image_path must be provided")
 	}
 
+	if cfg.MmdsConfig != nil {
+		vmCfg.MmdsConfig = cfg.MmdsConfig
+	}
+
 	if err := vmCfg.Validate(strfmt.Default); err != nil {
 		return vmCfg, err
 	}
