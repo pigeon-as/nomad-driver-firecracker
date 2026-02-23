@@ -24,6 +24,7 @@ var (
 		"boot_source":       machine.BootSourceHCLSpec(),
 		"drive":             hclspec.NewBlockList("drive", machine.DriveHCLSpec()),
 		"network_interface": hclspec.NewBlockList("network_interface", network.HCLSpec()),
+		"balloon":           machine.BalloonHCLSpec(),
 		"metadata":          hclspec.NewAttr("metadata", "string", false),
 		"snapshot_on_stop":  hclspec.NewAttr("snapshot_on_stop", "bool", false),
 	})
@@ -84,6 +85,7 @@ type TaskConfig struct {
 	BootSource        *machine.BootSource       `codec:"boot_source"`
 	Drives            []machine.Drive           `codec:"drive"`
 	NetworkInterfaces network.NetworkInterfaces `codec:"network_interface"`
+	Balloon           *machine.Balloon          `codec:"balloon"`
 	Metadata          string                    `codec:"metadata"`
 	SnapshotOnStop    bool                      `codec:"snapshot_on_stop"`
 }
@@ -121,6 +123,12 @@ func (c *TaskConfig) Validate() error {
 
 	if len(c.NetworkInterfaces) > 0 {
 		if err := c.NetworkInterfaces.Validate(); err != nil {
+			return err
+		}
+	}
+
+	if c.Balloon != nil {
+		if err := c.Balloon.Validate(); err != nil {
 			return err
 		}
 	}

@@ -101,6 +101,21 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: ""},
 			false,
 		},
+		{
+			"valid balloon",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Balloon: &machine.Balloon{AmountMiB: 128, DeflateOnOOM: true}},
+			false,
+		},
+		{
+			"balloon negative amount",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Balloon: &machine.Balloon{AmountMiB: -1}},
+			true,
+		},
+		{
+			"nil balloon is valid",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Balloon: nil},
+			false,
+		},
 	}
 
 	for _, tt := range tests {

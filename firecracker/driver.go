@@ -233,6 +233,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
+		Balloon:           driverConfig.Balloon,
 		Metadata:          driverConfig.Metadata,
 	}
 

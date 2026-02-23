@@ -153,9 +153,28 @@ func (c *Client) PutMmdsConfig(ctx context.Context, cfg *models.MmdsConfig) erro
 	return err
 }
 
+// PutBalloon configures the virtio-balloon device. Must be called
+// before InstanceStart.
+func (c *Client) PutBalloon(ctx context.Context, balloon *models.Balloon) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	_, err := c.client.PutBalloon(ctx, balloon)
+	return err
+}
+
+// PatchBalloon updates the target balloon size on a running VM.
+func (c *Client) PatchBalloon(ctx context.Context, update *models.BalloonUpdate) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	_, err := c.client.PatchBalloon(ctx, update)
+	return err
+}
+
 // StartInstance boots the microVM by sending an InstanceStart action.
 // All pre-boot configuration (machine config, boot source, drives,
-// network interfaces) must be applied before calling this.
+// network interfaces, balloon) must be applied before calling this.
 func (c *Client) StartInstance(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("client is not initialized")
@@ -170,7 +189,7 @@ func (c *Client) StartInstance(ctx context.Context) error {
 // ConfigureVM applies a full VM configuration via sequential API calls,
 // following the firecracker-go-sdk handler chain order:
 // PutMachineConfiguration → PutBootSource → PutDrive (each) →
-// PutNetworkInterface (each) → PutMmdsConfig → StartInstance.
+// PutNetworkInterface (each) → PutBalloon → PutMmdsConfig → StartInstance.
 func (c *Client) ConfigureVM(ctx context.Context, cfg *models.FullVMConfiguration) error {
 	if cfg.MachineConfig != nil {
 		if err := c.PutMachineConfiguration(ctx, cfg.MachineConfig); err != nil {
@@ -198,6 +217,11 @@ func (c *Client) ConfigureVM(ctx context.Context, cfg *models.FullVMConfiguratio
 		}
 		if err := c.PutNetworkInterface(ctx, id, n); err != nil {
 			return fmt.Errorf("PUT /network-interfaces/%s: %w", id, err)
+		}
+	}
+	if cfg.Balloon != nil {
+		if err := c.PutBalloon(ctx, cfg.Balloon); err != nil {
+			return fmt.Errorf("PUT /balloon: %w", err)
 		}
 	}
 	if cfg.MmdsConfig != nil {

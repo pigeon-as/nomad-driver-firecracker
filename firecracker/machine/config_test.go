@@ -35,3 +35,26 @@ func TestDrive_Validate(t *testing.T) {
 		must.Error(t, d.Validate())
 	})
 }
+
+func TestBalloon_Validate(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		b := &Balloon{AmountMiB: 128, DeflateOnOOM: true}
+		must.NoError(t, b.Validate())
+	})
+	t.Run("nil", func(t *testing.T) {
+		var b *Balloon
+		must.NoError(t, b.Validate())
+	})
+	t.Run("negative amount", func(t *testing.T) {
+		b := &Balloon{AmountMiB: -1}
+		must.Error(t, b.Validate())
+	})
+	t.Run("negative stats interval", func(t *testing.T) {
+		b := &Balloon{AmountMiB: 0, StatsPollingInterval: -1}
+		must.Error(t, b.Validate())
+	})
+	t.Run("zero amount is valid", func(t *testing.T) {
+		b := &Balloon{AmountMiB: 0, DeflateOnOOM: true}
+		must.NoError(t, b.Validate())
+	})
+}
