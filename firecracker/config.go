@@ -17,9 +17,8 @@ import (
 
 var (
 	configSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"image_paths":   hclspec.NewAttr("image_paths", "list(string)", false),
-		"snapshot_path": hclspec.NewAttr("snapshot_path", "string", false),
-		"jailer":        hclspec.NewBlock("jailer", true, jailer.HCLSpec()),
+		"image_paths": hclspec.NewAttr("image_paths", "list(string)", false),
+		"jailer":      hclspec.NewBlock("jailer", true, jailer.HCLSpec()),
 	})
 
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
@@ -45,15 +44,8 @@ var (
 type Config struct {
 	// ImagePaths is a required allowlist of directories from which Firecracker
 	// may load kernel, initrd, and drive images (in addition to the allocation directory).
-	ImagePaths []string `codec:"image_paths"`
-	// SnapshotPath is an optional persistent directory for snapshot storage.
-	// When set, snapshots are stored under <snapshot_path>/<namespace>/<jobID>/<groupName>/<taskName>/
-	// and survive allocation GC, enabling scale-to-zero workflows.
-	// Must be on the same filesystem as chroot_base (hard-link requirement).
-	// When empty, snapshots are stored in the task directory and only persist
-	// within the same allocation.
-	SnapshotPath string               `codec:"snapshot_path"`
-	Jailer       *jailer.JailerConfig `codec:"jailer"`
+	ImagePaths []string             `codec:"image_paths"`
+	Jailer     *jailer.JailerConfig `codec:"jailer"`
 }
 
 func (c *Config) Validate() error {
@@ -69,16 +61,6 @@ func (c *Config) Validate() error {
 
 	if len(c.ImagePaths) == 0 {
 		return errors.New("image_paths is required: specify at least one directory containing kernel and drive images")
-	}
-
-	if c.SnapshotPath != "" {
-		if !filepath.IsAbs(c.SnapshotPath) {
-			return fmt.Errorf("snapshot_path must be absolute, got %q", c.SnapshotPath)
-		}
-		normalized := filepath.Clean(c.SnapshotPath)
-		if c.SnapshotPath != normalized {
-			return fmt.Errorf("snapshot_path must be normalized, got %q (should be %q)", c.SnapshotPath, normalized)
-		}
 	}
 
 	// Validate ImagePaths: must be non-empty absolute normalized paths

@@ -259,14 +259,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// Check whether a previous snapshot exists for fast restore.
-	snapLoc := snapshot.Loc{
-		BasePath:  d.config.SnapshotPath,
-		TaskDir:   cfg.TaskDir().Dir,
-		Namespace: cfg.Namespace,
-		JobID:     cfg.JobID,
-		GroupName: cfg.TaskGroupName,
-		TaskName:  cfg.Name,
-	}
+	snapLoc := snapshot.Loc{TaskDir: cfg.TaskDir().Dir}
 	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
 
 	// Validate the VM configuration eagerly, before launching the process.
@@ -664,14 +657,7 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 	// Derive the chroot root from the socket path:
 	//   <chrootBase>/<exec>/<id>/root/run/firecracker.socket → .../root
 	chrootRoot := filepath.Dir(filepath.Dir(handle.socketPath))
-	snapLoc := snapshot.Loc{
-		BasePath:  d.config.SnapshotPath,
-		TaskDir:   handle.taskConfig.TaskDir().Dir,
-		Namespace: handle.taskConfig.Namespace,
-		JobID:     handle.taskConfig.JobID,
-		GroupName: handle.taskConfig.TaskGroupName,
-		TaskName:  handle.taskConfig.Name,
-	}
+	snapLoc := snapshot.Loc{TaskDir: handle.taskConfig.TaskDir().Dir}
 	if err := snapLoc.Save(chrootRoot); err != nil {
 		d.logger.Warn("snapshot: failed to save snapshot files", "task_id", taskID, "err", err)
 		_ = snapLoc.RemoveDir()

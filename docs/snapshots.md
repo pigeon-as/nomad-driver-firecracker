@@ -37,26 +37,39 @@ job "example" {
 
 ## Snapshot Storage
 
-### Ephemeral (default)
+Snapshot files (`vmstate` and `memory`) are stored in `<task_dir>/snapshots/`. They persist across task restarts within the same allocation.
 
-When no `snapshot_path` is set in the plugin config, snapshot files are stored in `<task_dir>/snapshots/`. They persist across task restarts within the same allocation but are lost when the allocation is garbage-collected.
+### Cross-Allocation Persistence
 
-### Persistent (scale-to-zero)
-
-When `snapshot_path` is set in the plugin config, snapshot files are stored under `<snapshot_path>/<namespace>/<jobID>/<groupName>/<taskName>/`. This directory is independent of the allocation lifecycle, so snapshots survive allocation GC. This enables scale-to-zero workflows where a job is scaled to 0, then back to 1 — the new allocation finds the existing snapshot and resumes instantly.
+To preserve snapshots across allocation replacements (e.g. scale-to-zero), use Nomad's built-in `ephemeral_disk` with `sticky` and `migrate`:
 
 ```hcl
-plugin "firecracker" {
-  config {
-    snapshot_path = "/opt/vm-snapshots"
-    ...
+job "example" {
+  group "example" {
+    ephemeral_disk {
+      sticky  = true
+      migrate = true
+      size    = 2048   # MB — must fit VM memory + vmstate
+    }
+
+    task "vm" {
+      driver = "firecracker"
+
+      config {
+        snapshot_on_stop = true
+        ...
+      }
+    }
   }
 }
 ```
 
 With this configuration:
-- VMs in job `my-job`, group `my-group`, task `my-task` → snapshots at `/opt/vm-snapshots/my-job/my-group/my-task/`
-- Each job+group+task combination gets its own isolated directory automatically
+- `sticky = true` — Nomad prefers placing replacement allocations on the same node
+- `migrate = true` — Nomad copies the alloc directory (including snapshots) to the replacement allocation
+- The new allocation finds the existing snapshot and resumes instantly
+
+This uses Nomad's native cross-allocation data migration and works correctly with any `count`.
 
 ## Timeout Budget
 
@@ -64,7 +77,7 @@ With this configuration:
 
 ## Limitations
 
-- **Same filesystem required** — `chroot_base` (and `snapshot_path` if set) and Nomad's `data_dir` must be on the same filesystem. Snapshot files are moved and hard-linked (instant metadata operations, zero data copy). If they are on different mounts, snapshot save will fail with a warning and the next start will fall back to cold boot.
-- Without `snapshot_path`, snapshots only persist within the same allocation. Config changes create a new allocation → cold boot.
+- **Same filesystem required** — `chroot_base` and Nomad's `data_dir` must be on the same filesystem. Snapshot files are moved and hard-linked (instant metadata operations, zero data copy). If they are on different mounts, snapshot save will fail with a warning and the next start will fall back to cold boot.
+- Without `ephemeral_disk { sticky = true, migrate = true }`, snapshots only persist within the same allocation. Config changes create a new allocation → cold boot.
 - **Guest clock drift** — the guest OS clock is frozen at snapshot time. After resume the guest clock will be behind wall time. The guest should run an NTP client (e.g. `chrony`) to resync after resume.
 - MMDS metadata is re-pushed after every restore (not persisted in the snapshot).

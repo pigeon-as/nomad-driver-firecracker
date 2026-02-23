@@ -19,25 +19,15 @@ const (
 	MemPath     = "/" + MemName
 )
 
-// Loc identifies the snapshot storage location for a task. Construct once
-// and call methods instead of passing 5 parameters to every function.
+// Loc identifies the snapshot storage location for a task.
 type Loc struct {
-	BasePath  string // plugin-level snapshot_path (empty = ephemeral)
-	TaskDir   string // Nomad task directory
-	Namespace string // Nomad namespace (isolates cross-tenant snapshots)
-	JobID     string // Nomad job ID (from the job stanza, not the display name)
-	GroupName string
-	TaskName  string
+	TaskDir string // Nomad task directory (cfg.TaskDir().Dir)
 }
 
-// Dir returns the directory where snapshot files are stored.
-// If BasePath is set (persistent mode), files go under
-// <BasePath>/<Namespace>/<JobID>/<GroupName>/<TaskName>/. Otherwise they go under
-// <TaskDir>/snapshots/ (ephemeral, within-allocation only).
+// Dir returns the directory where snapshot files are stored:
+// <TaskDir>/snapshots/. For cross-allocation persistence, configure
+// ephemeral_disk { sticky = true, migrate = true } on the job spec.
 func (l Loc) Dir() string {
-	if l.BasePath != "" {
-		return filepath.Join(l.BasePath, l.Namespace, l.JobID, l.GroupName, l.TaskName)
-	}
 	return filepath.Join(l.TaskDir, snapshotDirName)
 }
 
