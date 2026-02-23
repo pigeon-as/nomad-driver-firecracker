@@ -21,7 +21,7 @@ func TestBuildArgs(t *testing.T) {
 		CgroupVersion: "2",
 	}
 
-	args, err := cfg.BuildArgs("/srv/jailer", params, "--config-file", "/vmconfig.json")
+	args, err := cfg.BuildArgs(params, "--config-file", "/vmconfig.json")
 	if err != nil {
 		t.Fatalf("BuildArgs: %v", err)
 	}
@@ -45,17 +45,17 @@ func TestBuildArgs(t *testing.T) {
 
 func TestBuildArgs_NilConfig(t *testing.T) {
 	var cfg *JailerConfig
-	_, err := cfg.BuildArgs("/task", nil)
+	_, err := cfg.BuildArgs(nil)
 	if err == nil {
 		t.Fatal("expected error for nil config")
 	}
 }
 
-func TestBuildArgs_EmptyTaskDir(t *testing.T) {
-	cfg := &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"}
-	_, err := cfg.BuildArgs("", nil)
+func TestBuildArgs_MissingChrootBase(t *testing.T) {
+	cfg := &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}
+	_, err := cfg.BuildArgs(nil)
 	if err == nil {
-		t.Fatal("expected error for empty taskDir")
+		t.Fatal("expected error for missing chroot_base")
 	}
 }
 

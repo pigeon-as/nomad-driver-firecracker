@@ -349,7 +349,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		fcArgs = []string{"--config-file", configPathChroot}
 	}
 
-	jArgs, err := localJConfig.BuildArgs(jConfig.ChrootBase, params, fcArgs...)
+	jArgs, err := localJConfig.BuildArgs(params, fcArgs...)
 	if err != nil {
 		err = fmt.Errorf("invalid jailer configuration: %v", err)
 		return nil, nil, err

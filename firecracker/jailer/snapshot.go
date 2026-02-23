@@ -48,6 +48,16 @@ func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 		src := filepath.Join(chrootRootPath, name)
 		dst := filepath.Join(dir, name)
 		if err := os.Rename(src, dst); err != nil {
+			// Fall back to copy+remove when moving across filesystems.
+			if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+				if cpErr := copyFile(src, dst); cpErr != nil {
+					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
+				}
+				if rmErr := os.Remove(src); rmErr != nil && !os.IsNotExist(rmErr) {
+					return fmt.Errorf("remove source snapshot file %s: %w", name, rmErr)
+				}
+				continue
+			}
 			return fmt.Errorf("move snapshot file %s: %w", name, err)
 		}
 	}
