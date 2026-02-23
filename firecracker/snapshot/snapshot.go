@@ -25,7 +25,7 @@ type Loc struct {
 	BasePath  string // plugin-level snapshot_path (empty = ephemeral)
 	TaskDir   string // Nomad task directory
 	Namespace string // Nomad namespace (isolates cross-tenant snapshots)
-	JobID     string // Nomad job ID (UUID, not the human-readable name)
+	JobID     string // Nomad job ID (from the job stanza, not the display name)
 	GroupName string
 	TaskName  string
 }
