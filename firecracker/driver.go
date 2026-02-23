@@ -471,6 +471,10 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 	}
 	d.logger.Info("recovering task", "task_id", handle.Config.ID, "pid", taskState.Pid)
 
+	if d.config == nil || d.config.Jailer == nil {
+		return fmt.Errorf("cannot recover task: jailer configuration missing")
+	}
+
 	plugRC, err := structs.ReattachConfigToGoPlugin(taskState.ReattachConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build ReattachConfig from taskConfig state: %v", err)
