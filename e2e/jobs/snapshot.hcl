@@ -7,7 +7,7 @@ job "snapshot" {
       driver = "firecracker"
 
       config {
-        snapshot_boot = true
+        snapshot_on_stop = true
 
         boot_source {
           kernel_image_path = "/tmp/firecracker-images/vmlinux"
