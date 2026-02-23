@@ -102,11 +102,9 @@ func waitForLogs(t *testing.T, ctx context.Context, allocID, task, substr string
 	var logs string
 	for {
 		out, err := exec.CommandContext(ctx, "nomad", "alloc", "logs", allocID, task).CombinedOutput()
-		if err == nil {
-			logs = strings.TrimSpace(string(out))
-			if strings.Contains(logs, substr) {
-				return logs
-			}
+		logs = strings.TrimSpace(string(out))
+		if err == nil && strings.Contains(logs, substr) {
+			return logs
 		}
 		select {
 		case <-deadline:

@@ -199,7 +199,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// restart (StopTask → StartTask, no DestroyTask), the old chroot is
 	// still present. The jailer requires a clean directory tree on start.
 	jailerPath := jailer.TaskDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
-	_ = os.RemoveAll(jailerPath)
+	if err := os.RemoveAll(jailerPath); err != nil {
+		return nil, nil, fmt.Errorf("failed to clean existing jailer chroot %s: %v", jailerPath, err)
+	}
 
 	paths, err := jailer.BuildPaths(jConfig.ChrootBase, jID, jConfig.ExecFile)
 	if err != nil {
