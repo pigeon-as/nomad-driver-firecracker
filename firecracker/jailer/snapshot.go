@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -54,13 +55,21 @@ func SaveSnapshotFiles(chrootRootPath, taskDir string) error {
 }
 
 // LinkSnapshotFiles hard-links snapshot artifacts from the snapshot directory
-// into the chroot root so Firecracker can load them.
+// into the chroot root so Firecracker can load them. If the snapshot directory
+// and chroot are on different filesystems (EXDEV), the files are copied instead.
 func LinkSnapshotFiles(taskDir, chrootRootPath string) error {
 	dir := SnapshotDir(taskDir)
 	for _, name := range []string{SnapshotVMStateName, SnapshotMemName} {
 		src := filepath.Join(dir, name)
 		dst := filepath.Join(chrootRootPath, name)
 		if err := os.Link(src, dst); err != nil {
+			// Fall back to copy when hard-linking across filesystems.
+			if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+				if cpErr := copyFile(src, dst); cpErr != nil {
+					return fmt.Errorf("copy snapshot file %s: %w", name, cpErr)
+				}
+				continue
+			}
 			return fmt.Errorf("link snapshot file %s: %w", name, err)
 		}
 	}

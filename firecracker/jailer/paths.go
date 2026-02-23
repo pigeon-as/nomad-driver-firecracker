@@ -12,21 +12,19 @@ type Paths struct {
 	ConfigPathChroot string
 }
 
-const chrootBaseDirName = "jailer"
+// unixPathMax is the maximum usable length for a Unix domain socket path.
+// Linux's struct sockaddr_un.sun_path is 108 bytes; one is consumed by
+// the NUL terminator, leaving 107 usable characters.
+const unixPathMax = 107
 
-// ChrootBaseDir returns <task_dir>/jailer.
-func ChrootBaseDir(taskDir string) string {
-	return filepath.Join(taskDir, chrootBaseDirName)
-}
-
-// TaskDir returns <task_dir>/jailer/<exec_file_name>/<task_id>.
-func TaskDir(taskDir, taskID, execFile string) string {
-	return filepath.Join(ChrootBaseDir(taskDir), filepath.Base(execFile), taskID)
+// TaskDir returns <chrootBase>/<exec_file_name>/<task_id>.
+func TaskDir(chrootBase, taskID, execFile string) string {
+	return filepath.Join(chrootBase, filepath.Base(execFile), taskID)
 }
 
 // BuildPaths creates the jailer chroot directory and returns config file paths.
-func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
-	root := filepath.Join(TaskDir(taskDir, taskID, execFile), "root")
+func BuildPaths(chrootBase, taskID, execFile string) (*Paths, error) {
+	root := filepath.Join(TaskDir(chrootBase, taskID, execFile), "root")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
@@ -37,9 +35,9 @@ func BuildPaths(taskDir, taskID, execFile string) (*Paths, error) {
 	}, nil
 }
 
-// FindAllTaskDirs discovers all <task_dir>/jailer/*/<task_id> directories via glob.
-func FindAllTaskDirs(taskDir, taskID string) ([]string, error) {
-	pattern := filepath.Join(ChrootBaseDir(taskDir), "*", taskID)
+// FindAllTaskDirs discovers all <chrootBase>/*/<task_id> directories via glob.
+func FindAllTaskDirs(chrootBase, taskID string) ([]string, error) {
+	pattern := filepath.Join(chrootBase, "*", taskID)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid jailer path pattern %q: %w", pattern, err)
@@ -47,10 +45,10 @@ func FindAllTaskDirs(taskDir, taskID string) ([]string, error) {
 	return matches, nil
 }
 
-// FindTaskDir discovers a single <task_dir>/jailer/*/<task_id> via glob.
+// FindTaskDir discovers a single <chrootBase>/*/<task_id> via glob.
 // Returns an error if multiple directories match.
-func FindTaskDir(taskDir, taskID string) (string, error) {
-	matches, err := FindAllTaskDirs(taskDir, taskID)
+func FindTaskDir(chrootBase, taskID string) (string, error) {
+	matches, err := FindAllTaskDirs(chrootBase, taskID)
 	if err != nil {
 		return "", err
 	}
@@ -72,8 +70,8 @@ func SocketPath(taskJailerDir string) string {
 }
 
 // FindTaskSocketPath discovers the task jailer directory and returns its socket path.
-func FindTaskSocketPath(taskDir, taskID string) (string, error) {
-	taskJailerDir, err := FindTaskDir(taskDir, taskID)
+func FindTaskSocketPath(chrootBase, taskID string) (string, error) {
+	taskJailerDir, err := FindTaskDir(chrootBase, taskID)
 	if err != nil || taskJailerDir == "" {
 		return "", err
 	}
@@ -86,4 +84,18 @@ func TaskDirFromSocketPath(socketPath string) string {
 		return ""
 	}
 	return filepath.Dir(filepath.Dir(filepath.Dir(socketPath)))
+}
+
+// ValidateSocketPath checks that the resulting socket path will be within
+// the Unix domain socket sun_path limit (107 usable bytes). Call this
+// before creating any jailer directories.
+func ValidateSocketPath(chrootBase, taskID, execFile string) error {
+	p := SocketPath(TaskDir(chrootBase, taskID, execFile))
+	if len(p) > unixPathMax {
+		return fmt.Errorf(
+			"socket path too long (%d > %d bytes): %s; "+
+				"set a shorter chroot_base in plugin config",
+			len(p), unixPathMax, p)
+	}
+	return nil
 }

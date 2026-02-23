@@ -205,8 +205,9 @@ func TestSnapshot_Restart(t *testing.T) {
 	ctx := setup(t)
 	defer purge(t, ctx, "snapshot")()
 
-	// Cold boot.
-	_ = run(t, ctx, "nomad", "job", "run", "./jobs/snapshot.hcl")
+	// Cold boot — use -detach because service job deployment monitoring
+	// would block until healthy (or until the context deadline).
+	_ = run(t, ctx, "nomad", "job", "run", "-detach", "./jobs/snapshot.hcl")
 	waitForRunning(t, ctx, "snapshot")
 
 	// Extract allocation ID.

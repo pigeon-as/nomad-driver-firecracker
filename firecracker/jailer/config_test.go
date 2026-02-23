@@ -8,6 +8,7 @@ func TestBuildArgs(t *testing.T) {
 	cfg := &JailerConfig{
 		ExecFile:     "firecracker",
 		JailerBinary: "jailer",
+		ChrootBase:   "/srv/jailer",
 	}
 
 	uid := 1000
@@ -20,7 +21,7 @@ func TestBuildArgs(t *testing.T) {
 		CgroupVersion: "2",
 	}
 
-	args, err := cfg.BuildArgs("/alloc/task", params, "--config-file", "/vmconfig.json")
+	args, err := cfg.BuildArgs("/srv/jailer", params, "--config-file", "/vmconfig.json")
 	if err != nil {
 		t.Fatalf("BuildArgs: %v", err)
 	}
@@ -51,7 +52,7 @@ func TestBuildArgs_NilConfig(t *testing.T) {
 }
 
 func TestBuildArgs_EmptyTaskDir(t *testing.T) {
-	cfg := &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}
+	cfg := &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"}
 	_, err := cfg.BuildArgs("", nil)
 	if err == nil {
 		t.Fatal("expected error for empty taskDir")
@@ -65,9 +66,10 @@ func TestJailerConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{"nil config", nil, false},
-		{"valid", &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}, false},
-		{"missing exec_file", &JailerConfig{JailerBinary: "jailer"}, true},
-		{"missing jailer_binary", &JailerConfig{ExecFile: "firecracker"}, true},
+		{"valid", &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer", ChrootBase: "/srv/jailer"}, false},
+		{"missing exec_file", &JailerConfig{JailerBinary: "jailer", ChrootBase: "/srv/jailer"}, true},
+		{"missing jailer_binary", &JailerConfig{ExecFile: "firecracker", ChrootBase: "/srv/jailer"}, true},
+		{"missing chroot_base", &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}, true},
 	}
 
 	for _, tt := range tests {

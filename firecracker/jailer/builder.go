@@ -2,27 +2,25 @@ package jailer
 
 import (
 	"errors"
-	"path/filepath"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 )
 
-func (c *JailerConfig) BuildArgs(taskDir string, params *BuildParams, fcArgs ...string) ([]string, error) {
+func (c *JailerConfig) BuildArgs(chrootBase string, params *BuildParams, fcArgs ...string) ([]string, error) {
 	if c == nil {
 		return nil, errors.New("jailer config is nil")
 	}
-	if taskDir == "" {
-		return nil, errors.New("taskDir is empty")
+	if chrootBase == "" {
+		return nil, errors.New("chrootBase is empty")
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
 
-	chroot := filepath.Join(taskDir, "jailer")
 	builder := firecracker.NewJailerCommandBuilder().
 		WithBin(c.JailerBinary).
 		WithExecFile(c.ExecFile).
-		WithChrootBaseDir(chroot)
+		WithChrootBaseDir(chrootBase)
 
 	// Apply optional params
 	if params == nil {

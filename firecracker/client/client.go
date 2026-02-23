@@ -11,13 +11,17 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 )
 
+// Client wraps the firecracker-go-sdk HTTP client for the Firecracker
+// API socket.
 type Client struct {
 	client *firecracker.Client
 }
 
+// New creates a Firecracker API client for the given socket path.
 func New(socketPath string) *Client {
-	fc := firecracker.NewClient(socketPath, nil, false)
-	return &Client{client: fc}
+	return &Client{
+		client: firecracker.NewClient(socketPath, nil, false),
+	}
 }
 
 func (c *Client) GetMachineConfiguration() (*models.MachineConfiguration, error) {
@@ -74,7 +78,7 @@ func (c *Client) CreateSnapshot(ctx context.Context, snapshotPath, memFilePath s
 	return err
 }
 
-// LoadSnapshot loads a previously saved snapshot and optionally resumes the VM.
+// LoadSnapshot loads a previously saved snapshot and resumes the VM.
 // Paths are relative to the Firecracker chroot root.
 func (c *Client) LoadSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
 	if c == nil || c.client == nil {
