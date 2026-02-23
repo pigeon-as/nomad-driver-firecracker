@@ -53,7 +53,8 @@ In Nomad client configuration:
 ```hcl
 plugin "nomad-driver-firecracker" {
   config {
-    image_paths = ["/opt/vm-images"]
+    image_paths   = ["/opt/vm-images"]
+    snapshot_path = "/opt/vm-snapshots"
     
     jailer {
       exec_file     = "firecracker"
@@ -73,7 +74,7 @@ Required fields:
 Optional fields:
 - `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
 - `metadata` - JSON string pushed to the VM via [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) (requires networking)
-- `snapshot_boot` - enable snapshot-based fast restart (see [Snapshots](docs/snapshots.md))
+- `snapshot_on_stop` - enable snapshot-based fast restart (see [Snapshots](docs/snapshots.md))
 
 See [example job](example/example.nomad) for complete configuration.
 

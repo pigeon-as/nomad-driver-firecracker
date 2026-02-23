@@ -1,6 +1,6 @@
 # Filesystem Layout
 
-Files for a task span two directory trees: the Nomad allocation directory and the jailer chroot base.
+Files for a task span two directory trees: the Nomad allocation directory and the jailer chroot base. When `snapshot_path` is configured, snapshot files use a third tree.
 
 ## Allocation Directory
 
@@ -8,9 +8,24 @@ Files for a task span two directory trees: the Nomad allocation directory and th
 <alloc_dir>/
 ├── alloc/                  # Nomad shared allocation data
 ├── <task_name>/            # Task directory (cfg.TaskDir().Dir)
-│   └── snapshots/          # Snapshot files (vmstate + memory), persists across restarts
+│   └── snapshots/          # Ephemeral snapshots (when snapshot_path is not set)
 └── secrets/                # Secrets provisioned by Nomad
 ```
+
+## Persistent Snapshot Directory
+
+When `snapshot_path` is set in the plugin config, snapshots are stored outside the allocation:
+
+```
+<snapshot_path>/            # e.g. /opt/vm-snapshots
+└── <jobID>/
+    └── <groupName>/
+        └── <taskName>/
+            ├── vmstate         # VM state snapshot
+            └── memory          # Memory snapshot
+```
+
+This directory survives allocation GC, enabling scale-to-zero workflows.
 
 ## Jailer Chroot
 

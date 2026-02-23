@@ -26,6 +26,7 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network_interface"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/snapshot"
 )
 
 const (
@@ -257,12 +258,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// Check whether a previous snapshot exists for fast restore.
-	restoreFromSnapshot := driverConfig.SnapshotBoot && jailer.HasSnapshot(cfg.TaskDir().Dir)
+	snapLoc := snapshot.Loc{
+		BasePath:  d.config.SnapshotPath,
+		TaskDir:   cfg.TaskDir().Dir,
+		JobID:     cfg.JobName,
+		GroupName: cfg.TaskGroupName,
+		TaskName:  cfg.Name,
+	}
+	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
 
 	if restoreFromSnapshot {
 		// Link snapshot files into the chroot so Firecracker can load them.
 		chrootRoot := filepath.Dir(configPath)
-		if err := jailer.LinkSnapshotFiles(cfg.TaskDir().Dir, chrootRoot); err != nil {
+		if err := snapLoc.Link(chrootRoot); err != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to link snapshot files: %v", err)
 		}
@@ -396,9 +404,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		loadCtx, loadCancel := context.WithTimeout(d.ctx, 5*time.Second)
 		defer loadCancel()
 		c := client.New(socketPath)
-		if loadErr := c.LoadSnapshot(loadCtx, jailer.SnapshotVMStatePath, jailer.SnapshotMemPath); loadErr != nil {
+		if loadErr := c.LoadSnapshot(loadCtx, snapshot.VMStatePath, snapshot.MemPath); loadErr != nil {
 			d.logger.Warn("snapshot restore failed, removing snapshot for cold boot on next restart", "task_id", cfg.ID, "err", loadErr)
-			_ = os.RemoveAll(jailer.SnapshotDir(cfg.TaskDir().Dir))
+			_ = snapLoc.RemoveDir()
 			err = fmt.Errorf("failed to load snapshot: %v", loadErr)
 			return nil, nil, err
 		}
@@ -610,7 +618,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	return nil
 }
 
-// snapshotEnabled reports whether snapshot_boot is set for the task.
+// snapshotEnabled reports whether snapshot-on-stop is enabled for the task.
 func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 	if handle.taskConfig == nil {
 		return false
@@ -619,7 +627,7 @@ func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 	if err := handle.taskConfig.DecodeDriverConfig(&dc); err != nil {
 		return false
 	}
-	return dc.SnapshotBoot
+	return dc.SnapshotOnStop
 }
 
 // snapshotOnStop pauses the VM and creates a snapshot for fast restore on
@@ -637,7 +645,7 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 		return
 	}
 
-	if err := c.CreateSnapshot(ctx, jailer.SnapshotVMStatePath, jailer.SnapshotMemPath); err != nil {
+	if err := c.CreateSnapshot(ctx, snapshot.VMStatePath, snapshot.MemPath); err != nil {
 		d.logger.Warn("snapshot: failed to create snapshot", "task_id", taskID, "err", err)
 		return
 	}
@@ -646,10 +654,16 @@ func (d *FirecrackerDriverPlugin) snapshotOnStop(handle *taskHandle, timeout tim
 	// Derive the chroot root from the socket path:
 	//   <chrootBase>/<exec>/<id>/root/run/firecracker.socket → .../root
 	chrootRoot := filepath.Dir(filepath.Dir(handle.socketPath))
-	taskDir := handle.taskConfig.TaskDir().Dir
-	if err := jailer.SaveSnapshotFiles(chrootRoot, taskDir); err != nil {
+	snapLoc := snapshot.Loc{
+		BasePath:  d.config.SnapshotPath,
+		TaskDir:   handle.taskConfig.TaskDir().Dir,
+		JobID:     handle.taskConfig.JobName,
+		GroupName: handle.taskConfig.TaskGroupName,
+		TaskName:  handle.taskConfig.Name,
+	}
+	if err := snapLoc.Save(chrootRoot); err != nil {
 		d.logger.Warn("snapshot: failed to save snapshot files", "task_id", taskID, "err", err)
-		_ = os.RemoveAll(jailer.SnapshotDir(taskDir))
+		_ = snapLoc.RemoveDir()
 		return
 	}
 
