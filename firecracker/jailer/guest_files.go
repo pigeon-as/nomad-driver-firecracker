@@ -107,13 +107,13 @@ func copyFile(sourcePath, targetPath string) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		dstFile.Close()
 		return err
 	}
 
-	return nil
+	return dstFile.Close()
 }
 
 // isAllowedImagePath reports whether path is within allocDir or allowedPaths.
