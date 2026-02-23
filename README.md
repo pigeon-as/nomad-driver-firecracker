@@ -54,7 +54,6 @@ In Nomad client configuration:
 plugin "nomad-driver-firecracker" {
   config {
     image_paths   = ["/opt/vm-images"]
-    snapshot_path = "/opt/vm-snapshots"
     
     jailer {
       exec_file     = "firecracker"

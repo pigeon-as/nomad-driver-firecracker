@@ -8,7 +8,7 @@ import (
 
 func TestHas(t *testing.T) {
 	taskDir := t.TempDir()
-	loc := Loc{TaskDir: taskDir, Namespace: "default", JobID: "job1", GroupName: "group1", TaskName: "task1"}
+	loc := Loc{TaskDir: taskDir}
 
 	if loc.Has() {
 		t.Fatal("expected false with no snapshot dir")
@@ -38,7 +38,7 @@ func TestHas(t *testing.T) {
 func TestSaveAndLink(t *testing.T) {
 	chroot := t.TempDir()
 	taskDir := t.TempDir()
-	loc := Loc{TaskDir: taskDir, Namespace: "default", JobID: "job1", GroupName: "group1", TaskName: "task1"}
+	loc := Loc{TaskDir: taskDir}
 
 	// Create fake snapshot files in chroot.
 	if err := os.WriteFile(filepath.Join(chroot, VMStateName), []byte("state"), 0600); err != nil {
@@ -77,44 +77,17 @@ func TestSaveAndLink(t *testing.T) {
 func TestSave_MissingSource(t *testing.T) {
 	chroot := t.TempDir()
 	taskDir := t.TempDir()
-	loc := Loc{TaskDir: taskDir, Namespace: "default", JobID: "job1", GroupName: "group1", TaskName: "task1"}
+	loc := Loc{TaskDir: taskDir}
 	if err := loc.Save(chroot); err == nil {
 		t.Fatal("expected error for missing source files")
 	}
 }
 
-func TestDir_PersistentPath(t *testing.T) {
-	loc := Loc{BasePath: "/data/snapshots", TaskDir: "/alloc/task", Namespace: "production", JobID: "my-job", GroupName: "my-group", TaskName: "my-task"}
-	got := loc.Dir()
-	want := filepath.Join("/data/snapshots", "production", "my-job", "my-group", "my-task")
-	if got != want {
-		t.Errorf("Dir() = %q, want %q", got, want)
-	}
-}
-
-func TestDir_EphemeralPath(t *testing.T) {
-	loc := Loc{TaskDir: "/alloc/task", Namespace: "default", JobID: "my-job", GroupName: "my-group", TaskName: "my-task"}
+func TestDir(t *testing.T) {
+	loc := Loc{TaskDir: "/alloc/task"}
 	got := loc.Dir()
 	want := filepath.Join("/alloc/task", "snapshots")
 	if got != want {
 		t.Errorf("Dir() = %q, want %q", got, want)
-	}
-}
-
-func TestHas_PersistentPath(t *testing.T) {
-	base := t.TempDir()
-	loc := Loc{BasePath: base, Namespace: "default", JobID: "job1", GroupName: "group1", TaskName: "task1"}
-	dir := loc.Dir()
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, VMStateName), []byte("x"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, MemName), []byte("x"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if !loc.Has() {
-		t.Fatal("expected true for persistent path with both files")
 	}
 }
