@@ -346,27 +346,30 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// firecracker is ready for API calls. For fast-exiting VMs (e.g. batch
 	// jobs) the process may finish before the socket responds, which is fine —
 	// the run() goroutine detects completion via the executor.
-	if err := client.WaitForReady(d.ctx, socketPath, 5*time.Second); err != nil {
-		d.logger.Warn("firecracker socket not ready, VM may have already exited", "task_id", cfg.ID, "err", err)
-	} else {
-		d.logger.Debug("firecracker socket ready", "task_id", cfg.ID, "socket_path", socketPath)
-
-		// If the user provided MMDS metadata, push it to the running VM.
+	if waitErr := client.WaitForReady(d.ctx, socketPath, 5*time.Second); waitErr != nil {
 		if driverConfig.Metadata != "" {
-			var metadata interface{}
-			if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
-				err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
-				return nil, nil, err
-			}
-			mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
-			defer mmdsCancel()
-			c := client.New(socketPath)
-			if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
-				err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
-				return nil, nil, err
-			}
-			d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
+			err = fmt.Errorf("firecracker socket not ready, cannot configure MMDS metadata: %v", waitErr)
+			return nil, nil, err
 		}
+		d.logger.Warn("firecracker socket not ready, VM may have already exited", "task_id", cfg.ID, "err", waitErr)
+	}
+
+	// If the user provided MMDS metadata, push it to the running VM.
+	// Socket is guaranteed ready here (would have returned above otherwise).
+	if driverConfig.Metadata != "" {
+		var metadata interface{}
+		if jsonErr := json.Unmarshal([]byte(driverConfig.Metadata), &metadata); jsonErr != nil {
+			err = fmt.Errorf("failed to parse MMDS metadata JSON: %v", jsonErr)
+			return nil, nil, err
+		}
+		mmdsCtx, mmdsCancel := context.WithTimeout(d.ctx, 5*time.Second)
+		defer mmdsCancel()
+		c := client.New(socketPath)
+		if mmdsErr := c.PutMmds(mmdsCtx, metadata); mmdsErr != nil {
+			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
+			return nil, nil, err
+		}
+		d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
 	}
 
 	h := &taskHandle{
