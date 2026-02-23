@@ -342,10 +342,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	d.logger.Info("firecracker process launched", "task_id", cfg.ID, "pid", ps.Pid)
 	d.logger.Debug("jailer command", "cmd", jailerBin, "args", jArgs, "socket", socketPath)
 
-	// Best-effort socket readiness check. For long-running VMs this confirms
-	// firecracker is ready for API calls. For fast-exiting VMs (e.g. batch
-	// jobs) the process may finish before the socket responds, which is fine —
-	// the run() goroutine detects completion via the executor.
+	// Socket readiness check. For long-running VMs this confirms firecracker
+	// is ready for API calls. For fast-exiting VMs (e.g. batch jobs) the
+	// process may finish before the socket responds, which is acceptable —
+	// the run() goroutine detects completion via the executor. However, when
+	// MMDS metadata is configured, socket readiness is required and failure
+	// is fatal.
 	if waitErr := client.WaitForReady(d.ctx, socketPath, 5*time.Second); waitErr != nil {
 		if driverConfig.Metadata != "" {
 			err = fmt.Errorf("firecracker socket not ready, cannot configure MMDS metadata: %v", waitErr)
