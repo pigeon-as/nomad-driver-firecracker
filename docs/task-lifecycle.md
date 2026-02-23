@@ -6,9 +6,9 @@
 3. If bridge networking is active and no manual network interfaces are configured, a TAP device with TC redirect is created inside the network namespace
 4. If `snapshot_on_stop = true` and snapshot files exist from a previous run, the driver restores from snapshot (see [Snapshots](snapshots.md)); otherwise proceeds with cold boot
 5. Jailer launches Firecracker in `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/`
-6. Driver waits for the API socket to become ready (polls every 10ms, 3s timeout). Firecracker creates the socket before booting the guest — per the spec, this takes 6–60ms (typically ~12ms)
+6. Driver waits for the API socket to become ready (polls every 10ms, 3s timeout), matching the firecracker-go-sdk default
 7. If restoring from snapshot, loads the snapshot and resumes the VM. If `metadata` is configured, MMDS data is re-pushed via `PUT /mmds`
-8. For cold boot: VM boots from specified kernel and root filesystem. If `metadata` is configured, MMDS data is pushed via `PUT /mmds`
+8. For cold boot: configures the VM via sequential API calls (machine config, boot source, drives, network interfaces) then starts the instance. If `metadata` is configured, MMDS data is pushed via `PUT /mmds`
 9. Socket path: `<chroot_base>/<exec_file>/<taskName>-<allocID>/root/run/firecracker.socket`
 
 ## Stopping a Task

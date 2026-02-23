@@ -1,16 +1,16 @@
 package machine
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/go-openapi/strfmt"
 	drivers "github.com/hashicorp/nomad/plugins/drivers"
 )
 
+// ToSDK converts a driver Config into a firecracker-go-sdk
+// FullVMConfiguration, suitable for sequential API calls.
 func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, error) {
 	if cfg == nil {
 		return nil, errors.New("vm config is required")
@@ -61,23 +61,4 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	}
 
 	return vmCfg, nil
-}
-
-func Marshal(cfg *Config, res *drivers.Resources) ([]byte, error) {
-	vmCfg, err := ToSDK(cfg, res)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(vmCfg)
-}
-
-func BuildVMConfig(path string, cfg *Config, res *drivers.Resources) ([]byte, error) {
-	data, err := Marshal(cfg, res)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, data, 0640); err != nil {
-		return nil, err
-	}
-	return data, nil
 }
