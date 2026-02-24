@@ -15,7 +15,8 @@ import (
 
 const (
 	// TapName is the name of the TAP device created inside the network namespace.
-	// Each VM gets its own namespace, so "tap0" is unambiguous.
+	// Each allocation gets its own namespace in bridge mode, so "tap0" is
+	// unambiguous. The driver enforces one VM per allocation.
 	TapName = "tap0"
 
 	// ethPAll matches all protocols for TC filters (linux/if_ether.h ETH_P_ALL).
@@ -129,10 +130,17 @@ func createTap(name string, mtu int) (netlink.Link, error) {
 		if !errors.Is(err, syscall.EEXIST) {
 			return nil, fmt.Errorf("create tap device: %w", err)
 		}
-		// TAP already exists from a previous task attempt — reuse it.
+		// TAP already exists from a previous task attempt — reuse it
+		// after ensuring MTU and link state are correct.
 		link, lookupErr := netlink.LinkByName(name)
 		if lookupErr != nil {
 			return nil, fmt.Errorf("find existing tap %q: %w", name, lookupErr)
+		}
+		if err := netlink.LinkSetMTU(link, mtu); err != nil {
+			return nil, fmt.Errorf("set existing tap MTU: %w", err)
+		}
+		if err := netlink.LinkSetUp(link); err != nil {
+			return nil, fmt.Errorf("bring existing tap up: %w", err)
 		}
 		return link, nil
 	}
