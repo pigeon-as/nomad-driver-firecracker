@@ -41,7 +41,7 @@ config {
 
 The log file is located at:
 ```
-<chroot_base>/<exec_file>/<task_id>/root/firecracker.log
+<chroot_base>/<exec_file_name>/<task_id>/root/firecracker.log
 ```
 
 With the default chroot base (`/srv/jailer`), a typical path looks like:

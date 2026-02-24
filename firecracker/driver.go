@@ -379,7 +379,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// pivot_root, so Firecracker sees it at its working directory root.
 	// Matches the firecracker-go-sdk CreateLogFilesHandler pattern.
 	logFile := filepath.Join(chrootRoot, machine.LogFile)
-	f, createErr := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	f, createErr := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if createErr != nil {
 		err = fmt.Errorf("failed to create firecracker log file: %v", createErr)
 		return nil, nil, err

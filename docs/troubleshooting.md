@@ -44,7 +44,7 @@ Stderr contains jailer startup errors (e.g. invalid instance ID, missing exec-fi
 The driver always configures Firecracker's built-in logger. Structured JSON logs are written to:
 
 ```
-<chroot_base>/<exec_file>/<task_id>/root/firecracker.log
+<chroot_base>/<exec_file_name>/<task_id>/root/firecracker.log
 ```
 
 For example:
