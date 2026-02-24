@@ -583,10 +583,6 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Track elapsed time so exec.Shutdown gets only the remaining budget,
-	// matching Docker's single-deadline approach.
-	gracefulStart := time.Now()
-
 	if handle.socketPath == "" {
 		d.logger.Debug("socket path not available, forcing shutdown", "task_id", taskID)
 	} else if d.snapshotEnabled(handle) {
@@ -621,12 +617,10 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		}
 	}
 
-	remaining := timeout - time.Since(gracefulStart)
-	if remaining <= 0 {
-		remaining = time.Second
-	}
-
-	if err := handle.exec.Shutdown(signal, remaining); err != nil {
+	// Pass the full timeout to exec.Shutdown, matching the QEMU driver
+	// pattern. After a graceful attempt the process may already be gone,
+	// in which case Shutdown returns immediately.
+	if err := handle.exec.Shutdown(signal, timeout); err != nil {
 		if handle.pluginClient.Exited() {
 			return nil
 		}
