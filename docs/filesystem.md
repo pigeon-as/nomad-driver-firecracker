@@ -35,7 +35,7 @@ The jailer chroot lives outside the allocation directory, under `chroot_base` (d
 ## Jailer
 - Runs Firecracker in chroot for security isolation
 - Binary: configured in plugin config (default: `jailer`)
-- Chroot base: configured via `chroot_base` (default: `/srv/jailer`); must be short to keep the API socket path under the Unix domain socket limit (107 bytes)
+- Chroot base: configured via `chroot_base` (default: `/srv/jailer`); must be on a local filesystem and short enough to keep the API socket path under the Unix domain socket limit (107 bytes)
 - Cleanup: automatic on task destroy
 - **File Isolation**: Uses `pivot_root()` to establish security boundary - Firecracker cannot access host paths outside chroot
 
