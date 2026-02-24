@@ -14,7 +14,7 @@ func ValidateNames(names []string, itemType string) error {
 		}
 	}
 	if named > 0 && named != len(names) {
-		return fmt.Errorf("all %s must have a name, or none; got %d named out of %d", itemType, named, len(names))
+		return fmt.Errorf("naming must be all-or-nothing for %ss: got %d named out of %d", itemType, named, len(names))
 	}
 	if named > 0 {
 		seen := make(map[string]bool)
