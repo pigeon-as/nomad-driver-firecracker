@@ -16,7 +16,8 @@ import (
 const (
 	// TapName is the name of the TAP device created inside the network namespace.
 	// Each allocation gets its own namespace in bridge mode, so "tap0" is
-	// unambiguous. The driver enforces one VM per allocation.
+	// unambiguous — provided only one Firecracker task runs per group.
+	// Multiple Firecracker tasks in the same group are unsupported.
 	TapName = "tap0"
 
 	// ethPAll matches all protocols for TC filters (linux/if_ether.h ETH_P_ALL).
