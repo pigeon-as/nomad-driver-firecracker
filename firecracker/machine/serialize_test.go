@@ -364,6 +364,53 @@ func TestToSDK_MetadataUsesNamedNIC(t *testing.T) {
 	}
 }
 
+func TestToSDK_UnnamedNICs(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if len(vmCfg.NetworkInterfaces) != 2 {
+		t.Fatalf("expected 2 NICs, got %d", len(vmCfg.NetworkInterfaces))
+	}
+	if *vmCfg.NetworkInterfaces[0].IfaceID != "eth0" {
+		t.Errorf("nic[0].IfaceID = %q, want \"eth0\"", *vmCfg.NetworkInterfaces[0].IfaceID)
+	}
+	if *vmCfg.NetworkInterfaces[1].IfaceID != "eth1" {
+		t.Errorf("nic[1].IfaceID = %q, want \"eth1\"", *vmCfg.NetworkInterfaces[1].IfaceID)
+	}
+}
+
+func TestToSDK_MetadataDefaultsToEth0ForUnnamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+		},
+		Metadata: `{"key":"value"}`,
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
 func TestBalloon_ToSDK_Values(t *testing.T) {
 	b := &Balloon{AmountMiB: 256, DeflateOnOOM: true, StatsPollingInterval: 5}
 	sdk := b.ToSDK()

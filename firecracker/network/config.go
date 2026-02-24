@@ -73,24 +73,15 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 }
 
 func (networkInterfaces NetworkInterfaces) Validate() error {
-	named := 0
-	for _, iface := range networkInterfaces {
-		if iface.Name != "" {
-			named++
-		}
+	names := make([]string, len(networkInterfaces))
+	for i, iface := range networkInterfaces {
+		names[i] = iface.Name
 	}
-	if named > 0 && named != len(networkInterfaces) {
-		return fmt.Errorf("all network interfaces must have a name, or none; got %d named out of %d", named, len(networkInterfaces))
+	if err := ValidateNames(names, "network interface"); err != nil {
+		return err
 	}
 
-	seen := make(map[string]bool)
 	for _, iface := range networkInterfaces {
-		if iface.Name != "" {
-			if seen[iface.Name] {
-				return fmt.Errorf("duplicate network interface name %q", iface.Name)
-			}
-			seen[iface.Name] = true
-		}
 		if iface.StaticConfiguration == nil {
 			return fmt.Errorf("static_configuration is required for each network interface: %+v", iface)
 		}

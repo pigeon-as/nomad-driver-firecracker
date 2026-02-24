@@ -5,6 +5,7 @@ import (
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -185,6 +186,38 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{
 				{Name: "disk", PathOnHost: "/rootfs.ext4", IsRootDevice: true},
 				{Name: "disk", PathOnHost: "/data.ext4"},
+			}},
+			true,
+		},
+		{
+			"all network interfaces named",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, NetworkInterfaces: network.NetworkInterfaces{
+				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+				{Name: "eth1", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+			}},
+			false,
+		},
+		{
+			"no network interface named",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, NetworkInterfaces: network.NetworkInterfaces{
+				{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+				{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+			}},
+			false,
+		},
+		{
+			"mixed network interface names",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, NetworkInterfaces: network.NetworkInterfaces{
+				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+				{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+			}},
+			true,
+		},
+		{
+			"duplicate network interface names",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, NetworkInterfaces: network.NetworkInterfaces{
+				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
 			}},
 			true,
 		},
