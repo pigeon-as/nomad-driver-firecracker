@@ -50,7 +50,10 @@ func BootSourceHCLSpec() *hclspec.Spec {
 }
 
 // Drive describes a block device attached to the VM.
+// Name is optional; when set it becomes the Firecracker drive_id.
+// If any drive has a name, all drives must have one.
 type Drive struct {
+	Name         string              `codec:"name"`
 	PathOnHost   string              `codec:"path_on_host"`
 	IsRootDevice bool                `codec:"is_root_device"`
 	IsReadOnly   bool                `codec:"is_read_only"`
@@ -69,6 +72,7 @@ func (d *Drive) Validate() error {
 
 func DriveHCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
+		"name":           hclspec.NewAttr("name", "string", false),
 		"path_on_host":   hclspec.NewAttr("path_on_host", "string", true),
 		"is_root_device": hclspec.NewAttr("is_root_device", "bool", false),
 		"is_read_only":   hclspec.NewAttr("is_read_only", "bool", false),

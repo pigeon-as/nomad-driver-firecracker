@@ -110,7 +110,11 @@ func (c *TaskConfig) Validate() error {
 	}
 
 	hasRootDevice := false
+	namedDrives := 0
 	for i, d := range c.Drives {
+		if d.Name != "" {
+			namedDrives++
+		}
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("drive[%d]: %v", i, err)
 		}
@@ -119,6 +123,18 @@ func (c *TaskConfig) Validate() error {
 				return errors.New("multiple drives marked as root device; only one drive can have is_root_device = true")
 			}
 			hasRootDevice = true
+		}
+	}
+	if namedDrives > 0 && namedDrives != len(c.Drives) {
+		return fmt.Errorf("all drives must have a name, or none; got %d named out of %d", namedDrives, len(c.Drives))
+	}
+	if namedDrives > 0 {
+		seen := make(map[string]bool)
+		for _, d := range c.Drives {
+			if seen[d.Name] {
+				return fmt.Errorf("duplicate drive name %q", d.Name)
+			}
+			seen[d.Name] = true
 		}
 	}
 	if !hasRootDevice {

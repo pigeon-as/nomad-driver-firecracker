@@ -156,6 +156,38 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 4294967296}},
 			true,
 		},
+		{
+			"all drives named",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{
+				{Name: "root", PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+				{Name: "data", PathOnHost: "/data.ext4"},
+			}},
+			false,
+		},
+		{
+			"no drives named",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{
+				{PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+				{PathOnHost: "/data.ext4"},
+			}},
+			false,
+		},
+		{
+			"mixed drive names",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{
+				{Name: "root", PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+				{PathOnHost: "/data.ext4"},
+			}},
+			true,
+		},
+		{
+			"duplicate drive names",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{
+				{Name: "disk", PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+				{Name: "disk", PathOnHost: "/data.ext4"},
+			}},
+			true,
+		},
 	}
 
 	for _, tt := range tests {
