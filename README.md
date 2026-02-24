@@ -72,7 +72,7 @@ Required fields:
 
 Optional fields:
 - `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
-- `metadata` - JSON string pushed to the VM via [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) (requires networking)
+- `mmds` - [Microvm Metadata Service](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) block (requires networking): `version` (V1/V2, default V2), `interface` (NIC name, default first), `metadata` (JSON string)
 - `snapshot_on_stop` - enable snapshot-based fast restart (see [Snapshots](docs/snapshots.md))
 
 See [example job](example/example.nomad) for complete configuration.

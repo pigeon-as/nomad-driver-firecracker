@@ -174,6 +174,29 @@ func TestToSDK_MmdsInterfaceMatchesUnnamedNIC(t *testing.T) {
 	}
 }
 
+func TestToSDK_MmdsInterfaceMatchesSecondUnnamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+		Mmds: &Mmds{Interface: "eth1"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth1" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth1]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
 func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
 	cfg := &Config{
 		BootSource: &BootSource{KernelImagePath: "vmlinux"},
