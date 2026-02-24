@@ -604,7 +604,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		// Pause the VM and create a snapshot for fast restore on next start.
 		// If any step fails the snapshot is discarded; the process is killed
 		// below regardless.
-		d.snapshotOnStop(handle, timeout)
+		d.snapshotOnStop(handle, time.Until(deadline))
 	} else {
 		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
 		// Use the overall deadline for the API call so it doesn't consume
