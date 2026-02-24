@@ -389,6 +389,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, err
 	}
 
+	// When the jailer runs as a non-root user, adjust ownership so
+	// Firecracker can write to the log file after pivot_root.
+	if params.UID != 0 || params.GID != 0 {
+		if chownErr := os.Chown(logFile, int(params.UID), int(params.GID)); chownErr != nil {
+			err = fmt.Errorf("failed to chown firecracker log file: %v", chownErr)
+			return nil, nil, err
+		}
+	}
+
 	// Configure the VM via the Firecracker API.
 	c := machine.NewClient(socketPath)
 	configCtx, configCancel := context.WithTimeout(d.ctx, 10*time.Second)
@@ -598,14 +607,16 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		d.snapshotOnStop(handle, timeout)
 	} else {
 		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
-		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use the overall deadline for the API call so it doesn't consume
+		// time outside the budget.
+		apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
 		defer apiCancel()
 		c := machine.NewClient(handle.socketPath)
 		if err := c.SendCtrlAltDel(apiCtx); err != nil {
 			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
 		} else {
 			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
 			defer cancel()
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
