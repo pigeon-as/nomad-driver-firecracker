@@ -1,7 +1,9 @@
 package machine
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
@@ -137,6 +139,44 @@ func VsockHCLSpec() *hclspec.Spec {
 	}))
 }
 
+// Mmds configures the Microvm Metadata Service (MMDS).
+// Metadata is the raw JSON content served to the guest. Version selects
+// V1 or V2 (defaults to V2). Interface overrides which network
+// interface carries MMDS traffic (defaults to the first interface).
+type Mmds struct {
+	Version   string `codec:"version"`
+	Interface string `codec:"interface"`
+	Metadata  string `codec:"metadata"`
+}
+
+func (m *Mmds) Validate() error {
+	if m == nil {
+		return nil
+	}
+	if m.Version != "" {
+		switch m.Version {
+		case "V1", "V2":
+			// valid
+		default:
+			return fmt.Errorf("mmds.version must be \"V1\" or \"V2\"; got %q", m.Version)
+		}
+	}
+	if m.Metadata != "" {
+		if !json.Valid([]byte(m.Metadata)) {
+			return errors.New("mmds.metadata must be valid JSON")
+		}
+	}
+	return nil
+}
+
+func MmdsHCLSpec() *hclspec.Spec {
+	return hclspec.NewBlock("mmds", false, hclspec.NewObject(map[string]*hclspec.Spec{
+		"version":   hclspec.NewDefault(hclspec.NewAttr("version", "string", false), hclspec.NewLiteral(`"V2"`)),
+		"interface": hclspec.NewAttr("interface", "string", false),
+		"metadata":  hclspec.NewAttr("metadata", "string", false),
+	}))
+}
+
 // Config aggregates VM component configs for serialization via ToSDK.
 type Config struct {
 	BootSource        *BootSource
@@ -148,10 +188,9 @@ type Config struct {
 	// are "Error", "Warning", "Info", "Debug" (case-sensitive).
 	// Defaults to DefaultLogLevel ("Warning") when empty.
 	LogLevel string
-	// Metadata is the raw JSON string for MMDS. When non-empty, ToSDK
-	// validates that at least one network interface is configured and
-	// sets MmdsConfig to V2 on the first interface ("eth0").
-	Metadata string
+	// Mmds holds the MMDS block configuration: version, interface,
+	// and raw JSON content.
+	Mmds *Mmds
 	// Vsock enables the virtio-vsock device for host↔guest communication.
 	Vsock *Vsock
 }

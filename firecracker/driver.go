@@ -236,7 +236,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Balloon:           driverConfig.Balloon,
 		Vsock:             driverConfig.Vsock,
 		LogLevel:          driverConfig.LogLevel,
-		Metadata:          driverConfig.Metadata,
+		Mmds:              driverConfig.Mmds,
 	}
 
 	// Check whether a previous snapshot exists for fast restore.
@@ -452,8 +452,8 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// If the user provided MMDS metadata, push it to the VM.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if driverConfig.Metadata != "" {
-		if mmdsErr := c.PutMmdsJSON(configCtx, driverConfig.Metadata); mmdsErr != nil {
+	if driverConfig.Mmds != nil && driverConfig.Mmds.Metadata != "" {
+		if mmdsErr := c.PutMmdsJSON(configCtx, driverConfig.Mmds.Metadata); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err
 		}

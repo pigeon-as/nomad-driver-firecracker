@@ -89,17 +89,17 @@ func TestTaskConfig_Validate(t *testing.T) {
 		},
 		{
 			"valid metadata",
-			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: `{"key":"value"}`},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `{"key":"value"}`}},
 			false,
 		},
 		{
 			"invalid metadata JSON",
-			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: `{not json}`},
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `{not json}`}},
 			true,
 		},
 		{
-			"empty metadata is valid",
-			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Metadata: ""},
+			"nil mmds is valid",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: nil},
 			false,
 		},
 		{
@@ -219,6 +219,21 @@ func TestTaskConfig_Validate(t *testing.T) {
 				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
 				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
 			}},
+			true,
+		},
+		{
+			"valid mmds version V1",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Version: "V1"}},
+			false,
+		},
+		{
+			"valid mmds version V2",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Version: "V2"}},
+			false,
+		},
+		{
+			"invalid mmds version",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Version: "V3"}},
 			true,
 		},
 	}
