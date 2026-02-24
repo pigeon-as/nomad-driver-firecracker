@@ -81,7 +81,11 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	if len(cfg.Drives) > 0 {
 		drvs := make([]*models.Drive, len(cfg.Drives))
 		for i, d := range cfg.Drives {
-			drvs[i] = d.ToSDK(fmt.Sprintf("drive%d", i))
+			id := d.Name
+			if id == "" {
+				id = fmt.Sprintf("drive%d", i)
+			}
+			drvs[i] = d.ToSDK(id)
 		}
 		vmCfg.Drives = drvs
 	}
@@ -123,10 +127,15 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 		if len(cfg.NetworkInterfaces) == 0 {
 			return nil, errors.New("metadata requires networking: configure bridge mode or a network_interface block")
 		}
+		// Use the first NIC's resolved name for MMDS routing.
+		firstNIC := cfg.NetworkInterfaces[0].Name
+		if firstNIC == "" {
+			firstNIC = "eth0"
+		}
 		version := "V2"
 		vmCfg.MmdsConfig = &models.MmdsConfig{
 			Version:           &version,
-			NetworkInterfaces: []string{"eth0"},
+			NetworkInterfaces: []string{firstNIC},
 		}
 	}
 

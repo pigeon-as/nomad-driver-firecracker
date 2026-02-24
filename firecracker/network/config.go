@@ -32,7 +32,11 @@ var (
 
 type NetworkInterfaces []NetworkInterface
 
+// NetworkInterface describes a VM network device.
+// Name is optional; when set it becomes the Firecracker iface_id.
+// If any interface has a name, all interfaces must have one.
 type NetworkInterface struct {
+	Name                string                      `codec:"name"`
 	StaticConfiguration *StaticNetworkConfiguration `codec:"static_configuration"`
 	InRateLimiter       *models.RateLimiter         `codec:"in_rate_limiter"`
 	OutRateLimiter      *models.RateLimiter         `codec:"out_rate_limiter"`
@@ -45,6 +49,7 @@ type StaticNetworkConfiguration struct {
 
 func HCLSpec() *hclspec.Spec {
 	return hclspec.NewObject(map[string]*hclspec.Spec{
+		"name": hclspec.NewAttr("name", "string", false),
 		"static_configuration": hclspec.NewBlock("static_configuration", true, hclspec.NewObject(map[string]*hclspec.Spec{
 			"host_dev_name": hclspec.NewAttr("host_dev_name", "string", true),
 			"mac_address":   hclspec.NewAttr("mac_address", "string", false),
@@ -68,6 +73,14 @@ func (staticConf StaticNetworkConfiguration) validate() error {
 }
 
 func (networkInterfaces NetworkInterfaces) Validate() error {
+	names := make([]string, len(networkInterfaces))
+	for i, iface := range networkInterfaces {
+		names[i] = iface.Name
+	}
+	if err := ValidateNames(names, "network interface"); err != nil {
+		return err
+	}
+
 	for _, iface := range networkInterfaces {
 		if iface.StaticConfiguration == nil {
 			return fmt.Errorf("static_configuration is required for each network interface: %+v", iface)
@@ -94,7 +107,11 @@ func (networkInterfaces NetworkInterfaces) ToSDK() []*models.NetworkInterface {
 				m.GuestMac = iface.StaticConfiguration.MacAddress
 			}
 		}
-		m.IfaceID = strPtr(fmt.Sprintf("eth%d", i))
+		if iface.Name != "" {
+			m.IfaceID = strPtr(iface.Name)
+		} else {
+			m.IfaceID = strPtr(fmt.Sprintf("eth%d", i))
+		}
 		if iface.InRateLimiter != nil {
 			m.RxRateLimiter = iface.InRateLimiter
 		}

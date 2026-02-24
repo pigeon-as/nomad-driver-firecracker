@@ -272,6 +272,145 @@ func TestDrive_ToSDK_NoRateLimiter(t *testing.T) {
 	}
 }
 
+func TestToSDK_NamedDrives(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives: []Drive{
+			{Name: "root", PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+			{Name: "data", PathOnHost: "/data.ext4"},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if len(vmCfg.Drives) != 2 {
+		t.Fatalf("expected 2 drives, got %d", len(vmCfg.Drives))
+	}
+	if *vmCfg.Drives[0].DriveID != "root" {
+		t.Errorf("drive[0].DriveID = %q, want \"root\"", *vmCfg.Drives[0].DriveID)
+	}
+	if *vmCfg.Drives[1].DriveID != "data" {
+		t.Errorf("drive[1].DriveID = %q, want \"data\"", *vmCfg.Drives[1].DriveID)
+	}
+}
+
+func TestToSDK_UnnamedDrives(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives: []Drive{
+			{PathOnHost: "/rootfs.ext4", IsRootDevice: true},
+			{PathOnHost: "/data.ext4"},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if *vmCfg.Drives[0].DriveID != "drive0" {
+		t.Errorf("drive[0].DriveID = %q, want \"drive0\"", *vmCfg.Drives[0].DriveID)
+	}
+	if *vmCfg.Drives[1].DriveID != "drive1" {
+		t.Errorf("drive[1].DriveID = %q, want \"drive1\"", *vmCfg.Drives[1].DriveID)
+	}
+}
+
+func TestToSDK_NamedNICs(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{Name: "primary", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{Name: "mgmt", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if len(vmCfg.NetworkInterfaces) != 2 {
+		t.Fatalf("expected 2 NICs, got %d", len(vmCfg.NetworkInterfaces))
+	}
+	if *vmCfg.NetworkInterfaces[0].IfaceID != "primary" {
+		t.Errorf("nic[0].IfaceID = %q, want \"primary\"", *vmCfg.NetworkInterfaces[0].IfaceID)
+	}
+	if *vmCfg.NetworkInterfaces[1].IfaceID != "mgmt" {
+		t.Errorf("nic[1].IfaceID = %q, want \"mgmt\"", *vmCfg.NetworkInterfaces[1].IfaceID)
+	}
+}
+
+func TestToSDK_MetadataUsesNamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{Name: "primary", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+		},
+		Metadata: `{"key":"value"}`,
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "primary" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [primary]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
+func TestToSDK_UnnamedNICs(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if len(vmCfg.NetworkInterfaces) != 2 {
+		t.Fatalf("expected 2 NICs, got %d", len(vmCfg.NetworkInterfaces))
+	}
+	if *vmCfg.NetworkInterfaces[0].IfaceID != "eth0" {
+		t.Errorf("nic[0].IfaceID = %q, want \"eth0\"", *vmCfg.NetworkInterfaces[0].IfaceID)
+	}
+	if *vmCfg.NetworkInterfaces[1].IfaceID != "eth1" {
+		t.Errorf("nic[1].IfaceID = %q, want \"eth1\"", *vmCfg.NetworkInterfaces[1].IfaceID)
+	}
+}
+
+func TestToSDK_MetadataDefaultsToEth0ForUnnamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+		},
+		Metadata: `{"key":"value"}`,
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
 func TestBalloon_ToSDK_Values(t *testing.T) {
 	b := &Balloon{AmountMiB: 256, DeflateOnOOM: true, StatsPollingInterval: 5}
 	sdk := b.ToSDK()

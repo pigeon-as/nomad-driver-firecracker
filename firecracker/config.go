@@ -110,7 +110,9 @@ func (c *TaskConfig) Validate() error {
 	}
 
 	hasRootDevice := false
+	driveNames := make([]string, len(c.Drives))
 	for i, d := range c.Drives {
+		driveNames[i] = d.Name
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("drive[%d]: %v", i, err)
 		}
@@ -120,6 +122,9 @@ func (c *TaskConfig) Validate() error {
 			}
 			hasRootDevice = true
 		}
+	}
+	if err := network.ValidateNames(driveNames, "drive"); err != nil {
+		return err
 	}
 	if !hasRootDevice {
 		return errors.New("exactly one drive must be marked as root device with is_root_device = true")
