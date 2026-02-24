@@ -234,6 +234,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 		Balloon:           driverConfig.Balloon,
+		LogLevel:          driverConfig.LogLevel,
 		Metadata:          driverConfig.Metadata,
 	}
 
@@ -373,10 +374,50 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, err
 	}
 
+	// Create the Firecracker log file inside the chroot before calling
+	// PUT /logger. The file path on the host maps into the chroot via
+	// pivot_root, so Firecracker sees it at its working directory root.
+	// Matches the firecracker-go-sdk CreateLogFilesHandler pattern.
+	logFile := filepath.Join(chrootRoot, machine.LogFile)
+	f, createErr := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if createErr != nil {
+		err = fmt.Errorf("failed to create firecracker log file: %v", createErr)
+		return nil, nil, err
+	}
+	if closeErr := f.Close(); closeErr != nil {
+		err = fmt.Errorf("failed to close firecracker log file: %v", closeErr)
+		return nil, nil, err
+	}
+
 	// Configure the VM via the Firecracker API.
 	c := machine.NewClient(socketPath)
 	configCtx, configCancel := context.WithTimeout(d.ctx, 10*time.Second)
 	defer configCancel()
+
+	// Configure Firecracker logging before VM configuration or snapshot
+	// restore. The SDK's handler chain configures logging for both paths.
+	// PutLogger redirects structured daemon JSON logs to a file inside
+	// the chroot, leaving stdout for guest console output only.
+	{
+		logPath := machine.LogFile
+		logLevel := vmCfg.LogLevel
+		if logLevel == "" {
+			logLevel = machine.DefaultLogLevel
+		}
+		showLevel := true
+		showLogOrigin := false
+		logger := &models.Logger{
+			LogPath:       &logPath,
+			Level:         &logLevel,
+			ShowLevel:     &showLevel,
+			ShowLogOrigin: &showLogOrigin,
+		}
+		if logErr := c.PutLogger(configCtx, logger); logErr != nil {
+			err = fmt.Errorf("PUT /logger: %v", logErr)
+			return nil, nil, err
+		}
+		d.logger.Debug("firecracker logger configured", "task_id", cfg.ID, "level", logLevel)
+	}
 
 	if restoreFromSnapshot {
 		// Load a previously saved snapshot and resume the VM.

@@ -9,6 +9,16 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
+// LogFile is the filename used for Firecracker daemon logs inside the
+// jailer chroot. Firecracker writes structured JSON logs here when the
+// logger is configured via PUT /logger.
+const LogFile = "firecracker.log"
+
+// DefaultLogLevel is the Firecracker log verbosity used when no
+// log_level is specified in the task config. Matches the Firecracker
+// default.
+const DefaultLogLevel = "Warning"
+
 // BootSource describes the kernel and optional initrd for the VM.
 type BootSource struct {
 	KernelImagePath string `codec:"kernel_image_path"`
@@ -99,6 +109,10 @@ type Config struct {
 	NetworkInterfaces network.NetworkInterfaces
 	Balloon           *Balloon
 	MmdsConfig        *models.MmdsConfig
+	// LogLevel sets the Firecracker daemon log verbosity. Valid values
+	// are "Error", "Warning", "Info", "Debug" (case-sensitive).
+	// Defaults to DefaultLogLevel ("Warning") when empty.
+	LogLevel string
 	// Metadata is the raw JSON string for MMDS. When non-empty, ToSDK
 	// validates that at least one network interface is configured and
 	// sets MmdsConfig to V2 on the first interface ("eth0").

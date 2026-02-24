@@ -42,6 +42,9 @@ func TestNilClient(t *testing.T) {
 	if err := c.PutMmdsConfig(ctx, nil); err == nil {
 		t.Fatal("expected error from nil client")
 	}
+	if err := c.PutLogger(ctx, nil); err == nil {
+		t.Fatal("expected error from nil client")
+	}
 	if err := c.PutBalloon(ctx, nil); err == nil {
 		t.Fatal("expected error from nil client")
 	}

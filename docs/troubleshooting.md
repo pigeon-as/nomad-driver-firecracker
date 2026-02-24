@@ -15,46 +15,53 @@ Look at the **Allocations** table. If the status is `failed`, note the allocatio
 
 ## Reading task logs
 
-Nomad captures stdout and stderr from the jailer/firecracker process.
+Nomad captures stdout and stderr from the jailer/firecracker process via logmon. Stdout carries guest console output; stderr carries jailer startup errors. Firecracker daemon logs are written to a separate file inside the jailer chroot (see [logs.md](logs.md) for details).
 
-### List available log files
+### Guest console (stdout)
 
 ```bash
-nomad alloc fs <alloc_id> alloc/logs/
+nomad alloc logs <alloc_id>
 ```
 
-Example output:
-
-```
-Mode        Size   Name
--rw-r--r--  357 B  firecracker.stdout.0
--rw-r--r--  0 B    firecracker.stderr.0
-```
-
-### Read stdout
+Or via the filesystem:
 
 ```bash
 nomad alloc fs <alloc_id> alloc/logs/firecracker.stdout.0
 ```
 
-### Read stderr
+> **Tip:** The guest kernel must boot with `console=ttyS0` for serial output to appear here.
+
+### Stderr
 
 ```bash
-nomad alloc fs <alloc_id> alloc/logs/firecracker.stderr.0
+nomad alloc logs -stderr <alloc_id>
 ```
 
-Stderr is where jailer and firecracker error messages appear (e.g. invalid instance ID, missing exec-file, etc.).
+Stderr contains jailer startup errors (e.g. invalid instance ID, missing exec-file). Firecracker daemon messages do **not** appear here — they go to the daemon log file.
 
-### Using `nomad alloc logs`
+### Firecracker daemon logs
 
-If the task reached the `started` state, you can also use:
+The driver always configures Firecracker's built-in logger. Structured JSON logs are written to:
+
+```
+<chroot_base>/<exec_file_name>/<task_id>/root/firecracker.log
+```
+
+For example:
 
 ```bash
-nomad alloc logs <alloc_id>           # stdout
-nomad alloc logs -stderr <alloc_id>   # stderr
+cat /srv/jailer/firecracker/<alloc_id>-<hash>/root/firecracker.log
 ```
 
-> **Note:** `nomad alloc logs` only works for tasks that started successfully. If the task failed during startup (before reaching "started"), use `nomad alloc fs` instead to read the raw log files.
+Set `log_level` in the task config to control verbosity (defaults to `"Warning"`):
+
+```hcl
+config {
+  log_level = "Debug"
+}
+```
+
+> **Note:** `nomad alloc logs` only works for tasks that started successfully. If the task failed during startup (before reaching "started"), use `nomad alloc fs` instead to read the raw log files, and check the daemon log file in the chroot.
 
 ## Inspecting task events
 
@@ -82,3 +89,5 @@ log_level = "DEBUG"   # or "TRACE" for maximum detail
 ```
 
 `DEBUG` provides a good balance. `TRACE` is very noisy but useful for low-level protocol issues.
+
+> **Note:** This controls the Nomad agent/driver log level, which is separate from the Firecracker daemon `log_level` set in the task config.
