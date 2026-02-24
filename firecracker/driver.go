@@ -391,8 +391,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	// When the jailer runs as a non-root user, adjust ownership so
 	// Firecracker can write to the log file after pivot_root.
-	if params.UID != 0 || params.GID != 0 {
-		if chownErr := os.Chown(logFile, int(params.UID), int(params.GID)); chownErr != nil {
+	if params.UID != nil || params.GID != nil {
+		uid, gid := 0, 0
+		if params.UID != nil {
+			uid = *params.UID
+		}
+		if params.GID != nil {
+			gid = *params.GID
+		}
+		if chownErr := os.Chown(logFile, uid, gid); chownErr != nil {
 			err = fmt.Errorf("failed to chown firecracker log file: %v", chownErr)
 			return nil, nil, err
 		}
