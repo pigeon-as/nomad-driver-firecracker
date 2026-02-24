@@ -384,7 +384,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		err = fmt.Errorf("failed to create firecracker log file: %v", createErr)
 		return nil, nil, err
 	}
-	f.Close()
+	if closeErr := f.Close(); closeErr != nil {
+		err = fmt.Errorf("failed to close firecracker log file: %v", closeErr)
+		return nil, nil, err
+	}
 
 	// Configure the VM via the Firecracker API.
 	c := machine.NewClient(socketPath)
@@ -397,7 +400,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// the chroot, leaving stdout for guest console output only.
 	{
 		logPath := machine.LogFile
-		logLevel := driverConfig.LogLevel
+		logLevel := vmCfg.LogLevel
 		if logLevel == "" {
 			logLevel = machine.DefaultLogLevel
 		}
