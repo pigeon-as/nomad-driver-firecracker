@@ -121,6 +121,9 @@ func (v *Vsock) Validate() error {
 	if v.GuestCID < 3 {
 		return errors.New("vsock.guest_cid must be >= 3 (0, 1, and 2 are reserved)")
 	}
+	if v.GuestCID > 0xFFFFFFFF {
+		return errors.New("vsock.guest_cid must fit in 32 bits (max 4294967295)")
+	}
 	return nil
 }
 

@@ -151,6 +151,11 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 2}},
 			true,
 		},
+		{
+			"vsock guest_cid too high",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 4294967296}},
+			true,
+		},
 	}
 
 	for _, tt := range tests {
