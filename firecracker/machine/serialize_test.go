@@ -101,16 +101,99 @@ func TestToSDK_MmdsConfigNil(t *testing.T) {
 	}
 }
 
-func TestToSDK_MetadataWithoutNetworkErrors(t *testing.T) {
+func TestToSDK_MmdsWithoutNetworkErrors(t *testing.T) {
 	cfg := &Config{
 		BootSource: &BootSource{KernelImagePath: "vmlinux"},
 		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
-		Metadata:   `{"key":"value"}`,
+		Mmds:       &Mmds{Metadata: `{"key":"value"}`},
 	}
 
 	_, err := ToSDK(cfg, nil)
 	if err == nil {
-		t.Fatal("expected error when metadata is set without network interfaces")
+		t.Fatal("expected error when mmds is set without network interfaces")
+	}
+}
+
+func TestToSDK_MmdsBlockWithoutMetadata(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{{
+			StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"},
+		}},
+		Mmds: &Mmds{Version: "V1"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set even without metadata")
+	}
+	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V1" {
+		t.Errorf("MmdsConfig.Version = %v, want V1", vmCfg.MmdsConfig.Version)
+	}
+}
+
+func TestToSDK_MmdsInterfaceInvalid(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{Name: "primary", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+		},
+		Mmds: &Mmds{Interface: "nonexistent"},
+	}
+
+	_, err := ToSDK(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for mmds.interface referencing non-existent NIC")
+	}
+}
+
+func TestToSDK_MmdsInterfaceMatchesUnnamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{{
+			StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"},
+		}},
+		Mmds: &Mmds{Interface: "eth0"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
+func TestToSDK_MmdsInterfaceMatchesSecondUnnamedNIC(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+		Mmds: &Mmds{Interface: "eth1"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth1" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth1]", vmCfg.MmdsConfig.NetworkInterfaces)
 	}
 }
 
@@ -121,7 +204,7 @@ func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
 		NetworkInterfaces: network.NetworkInterfaces{{
 			StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"},
 		}},
-		Metadata: `{"key":"value"}`,
+		Mmds: &Mmds{Metadata: `{"key":"value"}`},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
@@ -136,6 +219,51 @@ func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
 	}
 	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
 		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
+	}
+}
+
+func TestToSDK_MmdsVersionV1(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{{
+			StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"},
+		}},
+		Mmds: &Mmds{Metadata: `{"key":"value"}`, Version: "V1"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V1" {
+		t.Errorf("MmdsConfig.Version = %v, want V1", vmCfg.MmdsConfig.Version)
+	}
+}
+
+func TestToSDK_MmdsInterfaceOverride(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		NetworkInterfaces: network.NetworkInterfaces{
+			{Name: "primary", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
+			{Name: "mgmt", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
+		},
+		Mmds: &Mmds{Metadata: `{"key":"value"}`, Interface: "mgmt"},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig == nil {
+		t.Fatal("expected MmdsConfig to be set")
+	}
+	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "mgmt" {
+		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [mgmt]", vmCfg.MmdsConfig.NetworkInterfaces)
 	}
 }
 
@@ -349,7 +477,7 @@ func TestToSDK_MetadataUsesNamedNIC(t *testing.T) {
 		NetworkInterfaces: network.NetworkInterfaces{
 			{Name: "primary", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
 		},
-		Metadata: `{"key":"value"}`,
+		Mmds: &Mmds{Metadata: `{"key":"value"}`},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
@@ -396,7 +524,7 @@ func TestToSDK_MetadataDefaultsToEth0ForUnnamedNIC(t *testing.T) {
 		NetworkInterfaces: network.NetworkInterfaces{
 			{StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap0"}},
 		},
-		Metadata: `{"key":"value"}`,
+		Mmds: &Mmds{Metadata: `{"key":"value"}`},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)

@@ -1,7 +1,6 @@
 package firecracker
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -26,8 +25,8 @@ var (
 		"network_interface": hclspec.NewBlockList("network_interface", network.HCLSpec()),
 		"balloon":           machine.BalloonHCLSpec(),
 		"vsock":             machine.VsockHCLSpec(),
+		"mmds":              machine.MmdsHCLSpec(),
 		"log_level":         hclspec.NewDefault(hclspec.NewAttr("log_level", "string", false), hclspec.NewLiteral(`"Warning"`)),
-		"metadata":          hclspec.NewAttr("metadata", "string", false),
 		"snapshot_on_stop":  hclspec.NewAttr("snapshot_on_stop", "bool", false),
 	})
 
@@ -89,8 +88,8 @@ type TaskConfig struct {
 	NetworkInterfaces network.NetworkInterfaces `codec:"network_interface"`
 	Balloon           *machine.Balloon          `codec:"balloon"`
 	Vsock             *machine.Vsock            `codec:"vsock"`
+	Mmds              *machine.Mmds             `codec:"mmds"`
 	LogLevel          string                    `codec:"log_level"`
-	Metadata          string                    `codec:"metadata"`
 	SnapshotOnStop    bool                      `codec:"snapshot_on_stop"`
 }
 
@@ -157,9 +156,9 @@ func (c *TaskConfig) Validate() error {
 		}
 	}
 
-	if c.Metadata != "" {
-		if !json.Valid([]byte(c.Metadata)) {
-			return errors.New("metadata must be valid JSON")
+	if c.Mmds != nil {
+		if err := c.Mmds.Validate(); err != nil {
+			return err
 		}
 	}
 

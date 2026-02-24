@@ -21,9 +21,11 @@ job "mmds" {
           is_root_device = true
         }
 
-        metadata = <<EOF
+        mmds {
+          metadata = <<EOF
 {"instance-id":"test-123","local-hostname":"mmds-test"}
 EOF
+        }
       }
 
       logs {
