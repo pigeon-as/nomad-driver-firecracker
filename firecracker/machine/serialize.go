@@ -122,10 +122,10 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 
 	if cfg.MmdsConfig != nil {
 		vmCfg.MmdsConfig = cfg.MmdsConfig
-	} else if cfg.Mmds != nil && cfg.Mmds.Metadata != "" {
-		// MMDS requires at least one network interface to route metadata.
+	} else if cfg.Mmds != nil {
+		// MMDS requires at least one network interface to route traffic.
 		if len(cfg.NetworkInterfaces) == 0 {
-			return nil, errors.New("mmds.metadata requires networking: configure bridge mode or a network_interface block")
+			return nil, errors.New("mmds requires networking: configure bridge mode or a network_interface block")
 		}
 		// Determine which NIC carries MMDS traffic.
 		mmdsIface := cfg.Mmds.Interface
@@ -134,6 +134,22 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 			mmdsIface = cfg.NetworkInterfaces[0].Name
 			if mmdsIface == "" {
 				mmdsIface = "eth0"
+			}
+		} else {
+			// Validate that the specified interface exists.
+			found := false
+			for _, nic := range cfg.NetworkInterfaces {
+				name := nic.Name
+				if name == "" {
+					name = "eth0"
+				}
+				if name == mmdsIface {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("mmds.interface %q must match a configured network_interface name", mmdsIface)
 			}
 		}
 		version := cfg.Mmds.Version
