@@ -771,5 +771,5 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
-	return nil, errors.New("exec is not supported; requires a vsock guest agent (see vsock config block)")
+	return nil, errors.New("exec is not supported by the firecracker driver; use SSH or a vsock-based guest agent for in-guest command execution")
 }

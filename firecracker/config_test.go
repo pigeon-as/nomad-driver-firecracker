@@ -136,6 +136,21 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, LogLevel: ""},
 			false,
 		},
+		{
+			"nil vsock is valid",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: nil},
+			false,
+		},
+		{
+			"valid vsock guest_cid",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 3}},
+			false,
+		},
+		{
+			"vsock guest_cid too low",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 2}},
+			true,
+		},
 	}
 
 	for _, tt := range tests {

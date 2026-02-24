@@ -137,10 +137,10 @@ func createTap(name string, mtu int) (netlink.Link, error) {
 			return nil, fmt.Errorf("find existing tap %q: %w", name, lookupErr)
 		}
 		if err := netlink.LinkSetMTU(link, mtu); err != nil {
-			return nil, fmt.Errorf("set existing tap MTU: %w", err)
+			return nil, fmt.Errorf("set existing tap %q MTU to %d: %w", name, mtu, err)
 		}
 		if err := netlink.LinkSetUp(link); err != nil {
-			return nil, fmt.Errorf("bring existing tap up: %w", err)
+			return nil, fmt.Errorf("bring existing tap %q up: %w", name, err)
 		}
 		return link, nil
 	}
