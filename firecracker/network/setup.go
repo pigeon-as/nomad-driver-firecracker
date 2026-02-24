@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2025
 // SPDX-License-Identifier: MPL-2.0
 
+//go:build linux
+
 package network
 
 import (
@@ -93,20 +95,21 @@ func SetupTapRedirect(netnsPath string) (string, error) {
 	return TapName, nil
 }
 
-// findVeth returns the first non-loopback link in the current network namespace.
-// In a Nomad bridge namespace there is exactly one: the veth peer. This matches
-// the approach used by tc-redirect-tap.
+// findVeth returns the veth link in the current network namespace.
+// In a Nomad bridge namespace there is exactly one: the veth peer created by
+// the bridge network mutator. Filtering by type avoids accidentally selecting
+// a TAP device that may already exist from a previous task attempt.
 func findVeth() (netlink.Link, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
 	for _, l := range links {
-		if l.Attrs().Name != "lo" {
+		if l.Type() == "veth" {
 			return l, nil
 		}
 	}
-	return nil, fmt.Errorf("no non-loopback interface found in network namespace")
+	return nil, fmt.Errorf("no veth interface found in network namespace")
 }
 
 // createTap creates and brings up a TAP device with the given name and MTU.
