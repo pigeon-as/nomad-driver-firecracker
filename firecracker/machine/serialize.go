@@ -56,6 +56,17 @@ func (b *Balloon) ToSDK() *models.Balloon {
 	}
 }
 
+func (v *Vsock) ToSDK() *models.Vsock {
+	if v == nil {
+		return nil
+	}
+	udsPath := VsockPath
+	return &models.Vsock{
+		GuestCid: int64Ptr(v.GuestCID),
+		UdsPath:  &udsPath,
+	}
+}
+
 // ToSDK converts a driver Config into a firecracker-go-sdk
 // FullVMConfiguration, suitable for sequential API calls.
 func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, error) {
@@ -81,6 +92,9 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	}
 	if cfg.Balloon != nil {
 		vmCfg.Balloon = cfg.Balloon.ToSDK()
+	}
+	if cfg.Vsock != nil {
+		vmCfg.Vsock = cfg.Vsock.ToSDK()
 	}
 	if res != nil && res.NomadResources != nil {
 		mc := &models.MachineConfiguration{}

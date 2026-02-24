@@ -295,3 +295,61 @@ func TestBalloon_ToSDK_Nil(t *testing.T) {
 		t.Error("expected nil SDK Balloon for nil receiver")
 	}
 }
+
+func TestToSDK_Vsock(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+		Vsock:      &Vsock{GuestCID: 3},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.Vsock == nil {
+		t.Fatal("expected Vsock to be set")
+	}
+	if *vmCfg.Vsock.GuestCid != 3 {
+		t.Errorf("Vsock.GuestCid = %d, want 3", *vmCfg.Vsock.GuestCid)
+	}
+	if *vmCfg.Vsock.UdsPath != VsockPath {
+		t.Errorf("Vsock.UdsPath = %q, want %q", *vmCfg.Vsock.UdsPath, VsockPath)
+	}
+}
+
+func TestToSDK_NoVsock(t *testing.T) {
+	cfg := &Config{
+		BootSource: &BootSource{KernelImagePath: "vmlinux"},
+		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
+	}
+
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.Vsock != nil {
+		t.Error("expected Vsock to be nil when not configured")
+	}
+}
+
+func TestVsock_ToSDK_Values(t *testing.T) {
+	v := &Vsock{GuestCID: 42}
+	sdk := v.ToSDK()
+	if sdk == nil {
+		t.Fatal("expected non-nil SDK Vsock")
+	}
+	if *sdk.GuestCid != 42 {
+		t.Errorf("GuestCid = %d, want 42", *sdk.GuestCid)
+	}
+	if *sdk.UdsPath != VsockPath {
+		t.Errorf("UdsPath = %q, want %q", *sdk.UdsPath, VsockPath)
+	}
+}
+
+func TestVsock_ToSDK_Nil(t *testing.T) {
+	var v *Vsock
+	if v.ToSDK() != nil {
+		t.Error("expected nil SDK Vsock for nil receiver")
+	}
+}

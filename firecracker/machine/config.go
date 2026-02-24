@@ -14,6 +14,11 @@ import (
 // logger is configured via PUT /logger.
 const LogFile = "firecracker.log"
 
+// VsockPath is the filename used for the vsock Unix domain socket inside
+// the jailer chroot. Firecracker creates and listens on this socket when
+// a vsock device is configured via PUT /vsock.
+const VsockPath = "v.sock"
+
 // DefaultLogLevel is the Firecracker log verbosity used when no
 // log_level is specified in the task config. Matches the Firecracker
 // default.
@@ -102,6 +107,29 @@ func BalloonHCLSpec() *hclspec.Spec {
 	}))
 }
 
+// Vsock enables the virtio-vsock device for host↔guest communication.
+// GuestCID is the 32-bit Context Identifier for the guest; it must be
+// unique per host and ≥ 3 (CID 0/1 are reserved, CID 2 is the host).
+type Vsock struct {
+	GuestCID int64 `codec:"guest_cid"`
+}
+
+func (v *Vsock) Validate() error {
+	if v == nil {
+		return nil
+	}
+	if v.GuestCID < 3 {
+		return errors.New("vsock.guest_cid must be >= 3 (0, 1, and 2 are reserved)")
+	}
+	return nil
+}
+
+func VsockHCLSpec() *hclspec.Spec {
+	return hclspec.NewBlock("vsock", false, hclspec.NewObject(map[string]*hclspec.Spec{
+		"guest_cid": hclspec.NewAttr("guest_cid", "number", true),
+	}))
+}
+
 // Config aggregates VM component configs for serialization via ToSDK.
 type Config struct {
 	BootSource        *BootSource
@@ -117,4 +145,6 @@ type Config struct {
 	// validates that at least one network interface is configured and
 	// sets MmdsConfig to V2 on the first interface ("eth0").
 	Metadata string
+	// Vsock enables the virtio-vsock device for host↔guest communication.
+	Vsock *Vsock
 }

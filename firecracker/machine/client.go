@@ -175,6 +175,16 @@ func (c *Client) PutBalloon(ctx context.Context, balloon *models.Balloon) error 
 	return err
 }
 
+// PutVsock configures the virtio-vsock device. Must be called
+// before InstanceStart.
+func (c *Client) PutVsock(ctx context.Context, vsock *models.Vsock) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	_, err := c.client.PutGuestVsock(ctx, vsock)
+	return err
+}
+
 // PatchBalloon updates the target balloon size on a running VM.
 func (c *Client) PatchBalloon(ctx context.Context, update *models.BalloonUpdate) error {
 	if c == nil || c.client == nil {
@@ -201,7 +211,8 @@ func (c *Client) StartInstance(ctx context.Context) error {
 // ConfigureVM applies a full VM configuration via sequential API calls,
 // following the firecracker-go-sdk handler chain order:
 // PutMachineConfiguration → PutBootSource → PutDrive (each) →
-// PutNetworkInterface (each) → PutBalloon → PutMmdsConfig → StartInstance.
+// PutNetworkInterface (each) → PutBalloon → PutVsock → PutMmdsConfig →
+// StartInstance.
 //
 // Logger configuration (PutLogger) is intentionally excluded. The SDK's
 // handler chain configures logging for both cold boot and snapshot
@@ -239,6 +250,11 @@ func (c *Client) ConfigureVM(ctx context.Context, cfg *models.FullVMConfiguratio
 	if cfg.Balloon != nil {
 		if err := c.PutBalloon(ctx, cfg.Balloon); err != nil {
 			return fmt.Errorf("PUT /balloon: %w", err)
+		}
+	}
+	if cfg.Vsock != nil {
+		if err := c.PutVsock(ctx, cfg.Vsock); err != nil {
+			return fmt.Errorf("PUT /vsock: %w", err)
 		}
 	}
 	if cfg.MmdsConfig != nil {
