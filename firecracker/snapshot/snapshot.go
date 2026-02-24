@@ -25,8 +25,9 @@ type Loc struct {
 }
 
 // Dir returns the directory where snapshot files are stored:
-// <TaskDir>/snapshots/. For cross-allocation persistence, configure
-// ephemeral_disk { sticky = true, migrate = true } on the job spec.
+// <TaskDir>/snapshots/. The task directory is scoped to the allocation,
+// so snapshots naturally survive alloc restarts (autostop/autostart) but
+// are discarded when a new allocation is created (job update, reschedule).
 func (l Loc) Dir() string {
 	return filepath.Join(l.TaskDir, snapshotDirName)
 }
