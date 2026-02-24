@@ -13,12 +13,11 @@
 
 ## Stopping a Task
 
-1. Nomad calls `StopTask()` with timeout
-2. If `snapshot_on_stop = true`, the driver pauses the VM, creates a snapshot, and saves snapshot files to `<task_dir>/snapshots/`
-3. Driver sends Ctrl+Alt+Del via Firecracker HTTP API for graceful shutdown
-4. Driver polls until the VM exits or the timeout expires
-5. Remaining time budget is passed to the executor's `Shutdown` (SIGTERM then SIGKILL)
-6. `DestroyTask` cleans up the jailer directory
+1. Nomad calls `StopTask()` with a single timeout deadline
+2. If `snapshot_on_stop = true`: the driver pauses the VM, creates a snapshot, and saves snapshot files to `<task_dir>/snapshots/`
+3. Otherwise: driver sends Ctrl+Alt+Del via Firecracker HTTP API and polls until the VM exits or the deadline expires
+4. Remaining time budget is passed to the executor's `Shutdown` (SIGTERM then SIGKILL)
+5. `DestroyTask` cleans up the jailer directory
 
 ## Task Recovery (after agent restart)
 
