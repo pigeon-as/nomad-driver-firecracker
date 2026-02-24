@@ -389,6 +389,15 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		return nil, nil, err
 	}
 
+	// When the jailer runs as a non-root user, adjust ownership so
+	// Firecracker can write to the log file after pivot_root.
+	if params.UID != nil && params.GID != nil {
+		if chownErr := os.Chown(logFile, *params.UID, *params.GID); chownErr != nil {
+			err = fmt.Errorf("failed to chown firecracker log file: %v", chownErr)
+			return nil, nil, err
+		}
+	}
+
 	// Configure the VM via the Firecracker API.
 	c := machine.NewClient(socketPath)
 	configCtx, configCancel := context.WithTimeout(d.ctx, 10*time.Second)
@@ -583,9 +592,11 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		return drivers.ErrTaskNotFound
 	}
 
-	// Track elapsed time so exec.Shutdown gets only the remaining budget,
-	// matching Docker's single-deadline approach.
-	gracefulStart := time.Now()
+	// Treat timeout as a single overall deadline, like Docker's Kill.
+	// The graceful phase (Ctrl+Alt+Del or snapshot) consumes part of
+	// the budget; exec.Shutdown gets whatever remains. When the budget
+	// is exhausted, remaining == 0 triggers an immediate proc.Kill().
+	deadline := time.Now().Add(timeout)
 
 	if handle.socketPath == "" {
 		d.logger.Debug("socket path not available, forcing shutdown", "task_id", taskID)
@@ -593,17 +604,19 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		// Pause the VM and create a snapshot for fast restore on next start.
 		// If any step fails the snapshot is discarded; the process is killed
 		// below regardless.
-		d.snapshotOnStop(handle, timeout)
+		d.snapshotOnStop(handle, time.Until(deadline))
 	} else {
 		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
-		apiCtx, apiCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use the overall deadline for the API call so it doesn't consume
+		// time outside the budget.
+		apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
 		defer apiCancel()
 		c := machine.NewClient(handle.socketPath)
 		if err := c.SendCtrlAltDel(apiCtx); err != nil {
 			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
 		} else {
 			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
 			defer cancel()
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
@@ -621,9 +634,11 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		}
 	}
 
-	remaining := timeout - time.Since(gracefulStart)
-	if remaining <= 0 {
-		remaining = time.Second
+	// Give exec.Shutdown only the remaining budget. When remaining is
+	// zero the executor sends an immediate SIGKILL (no grace period).
+	remaining := time.Until(deadline)
+	if remaining < 0 {
+		remaining = 0
 	}
 
 	if err := handle.exec.Shutdown(signal, remaining); err != nil {
