@@ -66,14 +66,18 @@ plugin "nomad-driver-firecracker" {
 
 ### Task Config
 
-Required fields:
-- `boot_source` - kernel image and boot args
-- `drive` - at least one root drive with `is_root_device = true`
+| Block / Field | Required | Description |
+|---|---|---|
+| `boot_source` | yes | `kernel_image_path`, `boot_args`, `initrd_path` |
+| `drive` | yes | `path_on_host`, `is_root_device`, `is_read_only`, `name`, `rate_limiter` |
+| `network_interface` | no | `name`, `static_configuration { host_dev_name, mac_address }` |
+| `balloon` | no | `amount_mib`, `deflate_on_oom`, `stats_polling_interval_s` |
+| `vsock` | no | `guest_cid` (≥ 3) |
+| `mmds` | no | `version` (V1/V2), `interface`, `metadata` (JSON) |
+| `log_level` | no | `Error`, `Warning` (default), `Info`, `Debug` |
+| `snapshot_on_stop` | no | Enable snapshot-based fast restart |
 
-Optional fields:
-- `network_interface` - manual tap device configuration (not needed for bridge mode; the driver automatically creates a TAP with TC redirect)
-- `mmds` - [Microvm Metadata Service](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) block (requires networking): `version` (V1/V2, default V2), `interface` (NIC name, default first), `metadata` (JSON string)
-- `snapshot_on_stop` - enable snapshot-based fast restart (see [Snapshots](docs/snapshots.md))
+At least one `drive` must have `is_root_device = true`. If any drive or NIC has a `name`, all must.
 
 See [example job](example/example.nomad) for complete configuration.
 

@@ -66,24 +66,29 @@ The guest VM must configure its network interface to use the IP allocated by Nom
 
 ## MMDS (Microvm Metadata Service)
 
-The driver supports [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) for passing metadata to the guest VM. Provide a JSON string in the task config:
+The driver supports [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) for passing metadata to the guest VM. Configure it with the `mmds` block:
 
 ```hcl
 config {
-  metadata = <<EOF
+  mmds {
+    version  = "V2"        # V1 or V2 (default V2)
+    # interface = "primary" # NIC name for MMDS traffic (default: first NIC)
+    metadata = <<EOF
 {
   "instance-id": "i-1234567890abcdef0",
   "local-hostname": "my-vm"
 }
 EOF
+  }
 }
 ```
 
 **How it works:**
 1. The driver validates the metadata JSON when the task is started by the Nomad client
-2. After the VM starts and the API socket is ready, the driver pushes the metadata via `PUT /mmds`
-3. MMDS is configured on the first network interface (`eth0`) using MMDS version 2
-4. The guest retrieves metadata by querying `http://169.254.169.254/` (requires networking)
+2. `MmdsConfig` (version + interface) is applied via `PUT /mmds/config` when the VM is created
+3. If `metadata` is set, the driver pushes it via `PUT /mmds` after the VM starts
+4. The interface defaults to the first NIC's resolved name; override with `interface`
+5. The guest retrieves metadata by querying `http://169.254.169.254/` (requires networking)
 
 **Guest access:**
 ```bash
