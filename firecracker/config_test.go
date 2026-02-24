@@ -116,6 +116,26 @@ func TestTaskConfig_Validate(t *testing.T) {
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Balloon: nil},
 			false,
 		},
+		{
+			"valid log_level Debug",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, LogLevel: "Debug"},
+			false,
+		},
+		{
+			"valid log_level Warning",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, LogLevel: "Warning"},
+			false,
+		},
+		{
+			"invalid log_level",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, LogLevel: "verbose"},
+			true,
+		},
+		{
+			"empty log_level uses default",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, LogLevel: ""},
+			false,
+		},
 	}
 
 	for _, tt := range tests {

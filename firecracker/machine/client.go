@@ -153,6 +153,18 @@ func (c *Client) PutMmdsConfig(ctx context.Context, cfg *models.MmdsConfig) erro
 	return err
 }
 
+// PutLogger configures the Firecracker logger. Must be called after
+// the VMM starts but before any other configuration (machine config,
+// boot source, etc.), matching the firecracker-go-sdk handler chain
+// order. Can only be called once per VM lifetime.
+func (c *Client) PutLogger(ctx context.Context, logger *models.Logger) error {
+	if c == nil || c.client == nil {
+		return errors.New("client is not initialized")
+	}
+	_, err := c.client.PutLogger(ctx, logger)
+	return err
+}
+
 // PutBalloon configures the virtio-balloon device. Must be called
 // before InstanceStart.
 func (c *Client) PutBalloon(ctx context.Context, balloon *models.Balloon) error {
@@ -190,6 +202,11 @@ func (c *Client) StartInstance(ctx context.Context) error {
 // following the firecracker-go-sdk handler chain order:
 // PutMachineConfiguration → PutBootSource → PutDrive (each) →
 // PutNetworkInterface (each) → PutBalloon → PutMmdsConfig → StartInstance.
+//
+// Logger configuration (PutLogger) is intentionally excluded. The SDK's
+// handler chain configures logging for both cold boot and snapshot
+// restore, but ConfigureVM only runs on cold boot. The driver calls
+// PutLogger directly before this method to cover both paths.
 func (c *Client) ConfigureVM(ctx context.Context, cfg *models.FullVMConfiguration) error {
 	if cfg.MachineConfig != nil {
 		if err := c.PutMachineConfiguration(ctx, cfg.MachineConfig); err != nil {

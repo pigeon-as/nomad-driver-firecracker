@@ -1,25 +1,10 @@
 # Logging
 
-Both guest console and Firecracker daemon logs are captured and managed by Nomad's logmon pipeline, making them accessible via standard Nomad log commands. This means log rotation, size limits, and log disabling all behave exactly like other Nomad drivers.
+Guest console output and Firecracker daemon logs are captured separately, making them easy to access and debug.
 
-## Firecracker Daemon Logs (stdout)
+## Guest Console Logs (stdout)
 
-The driver starts Firecracker without a `--log-path` argument, so structured JSON logs from the Firecracker daemon process are emitted to stdout. These logs are captured by the executor and flow through logmon to the task's stdout stream.
-
-These logs include:
-- Firecracker internal operations
-- API requests and responses
-- VM lifecycle events
-- Error messages and warnings
-
-Access logs via:
-```bash
-nomad alloc logs <alloc>
-```
-
-## Guest Console Logs
-
-Guest OS serial console output (`/dev/ttyS0`) is emitted to stdout alongside Firecracker daemon logs. View all output via:
+Guest OS serial console output (`/dev/ttyS0`) flows through the executor to Nomad's logmon pipeline, accessible via standard Nomad log commands. Log rotation, size limits, and log disabling behave exactly like other Nomad drivers.
 
 ```bash
 nomad alloc logs <alloc>
@@ -30,9 +15,9 @@ nomad alloc logs <alloc>
 Kernel boot args must include `console=ttyS0`:
 ```hcl
 config {
-	boot_source {
-		boot_args = "console=ttyS0 reboot=k panic=1 pci=off"
-	}
+  boot_source {
+    boot_args = "console=ttyS0 reboot=k panic=1 pci=off"
+  }
 }
 ```
 
@@ -41,4 +26,34 @@ Optionally configure systemd services for console visibility:
 [Service]
 StandardOutput=journal+console
 ```
+
+## Firecracker Daemon Logs
+
+The driver always configures Firecracker's built-in logger via `PUT /logger`. Structured JSON daemon logs are written to a file inside the jailer chroot, cleanly separated from guest console output on stdout.
+
+The optional `log_level` field controls verbosity (defaults to `"Warning"`):
+
+```hcl
+config {
+  log_level = "Info"  # Error, Warning, Info, or Debug (case-sensitive)
+}
+```
+
+The log file is located at:
+```
+<chroot_base>/<exec_file>/<task_id>/root/firecracker.log
+```
+
+With the default chroot base (`/srv/jailer`), a typical path looks like:
+```
+/srv/jailer/firecracker/<alloc_id>-<hash>/root/firecracker.log
+```
+
+These logs include:
+- Firecracker internal operations
+- API requests and responses
+- VM lifecycle events
+- Error messages and warnings
+
+The log file is cleaned up automatically when the task is destroyed (as part of jailer chroot cleanup).
 
