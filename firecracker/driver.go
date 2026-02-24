@@ -234,6 +234,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		Drives:            driverConfig.Drives,
 		NetworkInterfaces: driverConfig.NetworkInterfaces,
 		Balloon:           driverConfig.Balloon,
+		Vsock:             driverConfig.Vsock,
 		LogLevel:          driverConfig.LogLevel,
 		Metadata:          driverConfig.Metadata,
 	}
@@ -770,5 +771,5 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
-	return nil, errors.New("exec is not supported for Firecracker VMs; configure your guest OS to handle command execution externally")
+	return nil, errors.New("exec is not supported by the firecracker driver; use SSH or a vsock-based guest agent for in-guest command execution")
 }
