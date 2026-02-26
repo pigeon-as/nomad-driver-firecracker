@@ -3,6 +3,7 @@ package firecracker
 import (
 	"testing"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/guestapi"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
@@ -220,6 +221,26 @@ func TestTaskConfig_Validate(t *testing.T) {
 				{Name: "eth0", StaticConfiguration: &network.StaticNetworkConfiguration{HostDevName: "tap1"}},
 			}},
 			true,
+		},
+		{
+			"guest_api without vsock",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, GuestAPI: &guestapi.GuestAPI{Port: 10000}},
+			true,
+		},
+		{
+			"guest_api with vsock",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 3}, GuestAPI: &guestapi.GuestAPI{Port: 10000}},
+			false,
+		},
+		{
+			"guest_api port zero",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Vsock: &machine.Vsock{GuestCID: 3}, GuestAPI: &guestapi.GuestAPI{Port: 0}},
+			true,
+		},
+		{
+			"nil guest_api is valid",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, GuestAPI: nil},
+			false,
 		},
 		{
 			"valid mmds version V1",

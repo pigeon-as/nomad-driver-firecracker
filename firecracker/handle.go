@@ -27,6 +27,7 @@ type taskHandle struct {
 	pluginClient *plugin.Client
 	logger       hclog.Logger
 	socketPath   string
+	guestClient  *guestapi.Client // nil when guest_api block is absent
 
 	stateLock sync.RWMutex
 

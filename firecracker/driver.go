@@ -462,6 +462,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
 	}
 
+	var gc *guestapi.Client
+	if driverConfig.GuestAPI != nil && socketPath != "" {
+		if uds := guestapi.UDSPath(socketPath); uds != "" {
+			gc = guestapi.New(uds, driverConfig.GuestAPI.Port)
+		}
+	}
+
 	h := &taskHandle{
 		exec:         execImpl,
 		pid:          ps.Pid,
@@ -471,6 +478,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
 		socketPath:   socketPath,
+		guestClient:  gc,
 	}
 
 	driverState := TaskState{
@@ -531,6 +539,16 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		}
 	}
 
+	var gc *guestapi.Client
+	if socketPath != "" {
+		var dc TaskConfig
+		if err := taskState.TaskConfig.DecodeDriverConfig(&dc); err == nil && dc.GuestAPI != nil {
+			if uds := guestapi.UDSPath(socketPath); uds != "" {
+				gc = guestapi.New(uds, dc.GuestAPI.Port)
+			}
+		}
+	}
+
 	h := &taskHandle{
 		exec:         execImpl,
 		pid:          taskState.Pid,
@@ -541,6 +559,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		exitResult:   &drivers.ExitResult{},
 		logger:       d.logger,
 		socketPath:   socketPath,
+		guestClient:  gc,
 	}
 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
@@ -640,7 +659,7 @@ func (d *FirecrackerDriverPlugin) gracefulShutdown(handle *taskHandle, taskID st
 	initiated := false
 
 	// Tier 1: vsock SIGTERM — works on all architectures.
-	if gc := d.guestClient(handle); gc != nil {
+	if gc := handle.guestClient; gc != nil {
 		if err := gc.Signal(apiCtx, int(syscall.SIGTERM)); err != nil {
 			d.logger.Debug("vsock SIGTERM failed", "task_id", taskID, "err", err)
 		} else {
@@ -686,26 +705,6 @@ func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 		return false
 	}
 	return dc.SnapshotOnStop
-}
-
-// guestClient returns a guestapi.Client for the task if guest_api is
-// configured, or nil if the guest agent is not enabled.
-func (d *FirecrackerDriverPlugin) guestClient(handle *taskHandle) *guestapi.Client {
-	if handle.taskConfig == nil || handle.socketPath == "" {
-		return nil
-	}
-	var dc TaskConfig
-	if err := handle.taskConfig.DecodeDriverConfig(&dc); err != nil {
-		return nil
-	}
-	if dc.GuestAPI == nil {
-		return nil
-	}
-	uds := guestapi.UDSPath(handle.socketPath)
-	if uds == "" {
-		return nil
-	}
-	return guestapi.New(uds, dc.GuestAPI.Port)
 }
 
 // snapshotOnStop pauses the VM and creates a snapshot for fast restore on
@@ -811,7 +810,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return handle.forwardSignal(ctx, signal, d.guestClient(handle))
+	return handle.forwardSignal(ctx, signal, handle.guestClient)
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
