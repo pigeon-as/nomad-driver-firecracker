@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/nomad/drivers/shared/executor"
 	"github.com/hashicorp/nomad/plugins/drivers"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/guestapi"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 )
 
@@ -83,28 +84,38 @@ func (h *taskHandle) run() {
 	h.completedAt = ps.Time
 }
 
-// forwardSignal sends SIGTERM/SIGINT as Ctrl+Alt+Del via the Firecracker API.
-// Other signals are forwarded directly to the executor process.
-func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error {
+// forwardSignal delivers a signal to the guest workload.
+//
+// 3-tier approach: (1) vsock guest agent — arch-independent, any signal.
+// (2) Ctrl+Alt+Del — x86_64 only, SIGTERM/SIGINT only.
+// (3) executor process signal — last resort.
+func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, gc *guestapi.Client) error {
 	sig, ok := signals.SignalLookup[signalName]
 	if !ok {
 		return fmt.Errorf("unknown signal %q", signalName)
 	}
 
-	// For SIGTERM/SIGINT, attempt graceful shutdown via Firecracker API
-	if sig == syscall.SIGTERM || sig == syscall.SIGINT {
-		if h.socketPath == "" {
-			h.logger.Debug("socket path not available, cannot attempt graceful shutdown via ctrl+alt+del", "task_id", h.taskConfig.ID)
+	// Tier 1: vsock guest agent (any architecture, any signal).
+	if gc != nil {
+		if err := gc.Signal(ctx, int(sig)); err != nil {
+			h.logger.Debug("vsock signal failed, trying fallback", "signal", signalName, "err", err)
 		} else {
-			c := machine.NewClient(h.socketPath)
-			if err := c.SendCtrlAltDel(ctx); err != nil {
-				h.logger.Debug("ctrl+alt+del failed, forwarding signal", "signal", signalName, "err", err)
-			} else {
-				h.logger.Info("graceful shutdown initiated via ctrl+alt+del", "task_id", h.taskConfig.ID)
-				return nil
-			}
+			h.logger.Info("signal delivered via vsock", "signal", signalName, "task_id", h.taskConfig.ID)
+			return nil
 		}
 	}
 
+	// Tier 2: Ctrl+Alt+Del (x86_64 only, SIGTERM/SIGINT only).
+	if (sig == syscall.SIGTERM || sig == syscall.SIGINT) && h.socketPath != "" {
+		c := machine.NewClient(h.socketPath)
+		if err := c.SendCtrlAltDel(ctx); err != nil {
+			h.logger.Debug("ctrl+alt+del failed, forwarding to executor", "signal", signalName, "err", err)
+		} else {
+			h.logger.Info("graceful shutdown initiated via ctrl+alt+del", "task_id", h.taskConfig.ID)
+			return nil
+		}
+	}
+
+	// Tier 3: executor process signal.
 	return h.exec.Signal(sig)
 }

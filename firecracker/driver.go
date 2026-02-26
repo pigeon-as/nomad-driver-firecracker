@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/guestapi"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
@@ -607,32 +609,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		// below regardless.
 		d.snapshotOnStop(handle, time.Until(deadline))
 	} else {
-		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
-		// Use the overall deadline for the API call so it doesn't consume
-		// time outside the budget.
-		apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
-		defer apiCancel()
-		c := machine.NewClient(handle.socketPath)
-		if err := c.SendCtrlAltDel(apiCtx); err != nil {
-			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
-		} else {
-			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
-			ctx, cancel := context.WithDeadline(context.Background(), deadline)
-			defer cancel()
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
-		out:
-			for {
-				select {
-				case <-ctx.Done():
-					break out
-				case <-ticker.C:
-					if !handle.IsRunning() {
-						break out
-					}
-				}
-			}
-		}
+		d.gracefulShutdown(handle, taskID, deadline)
 	}
 
 	// Give exec.Shutdown only the remaining budget. When remaining is
@@ -652,6 +629,53 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	return nil
 }
 
+// gracefulShutdown attempts to stop the guest workload gracefully within
+// the given deadline. Preferred path: vsock SIGTERM (arch-independent).
+// Fallback: Ctrl+Alt+Del via Firecracker API (x86_64 only, requires kernel
+// keyboard support). Polls until the process exits or the deadline expires.
+func (d *FirecrackerDriverPlugin) gracefulShutdown(handle *taskHandle, taskID string, deadline time.Time) {
+	apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
+	defer apiCancel()
+
+	initiated := false
+
+	// Tier 1: vsock SIGTERM — works on all architectures.
+	if gc := d.guestClient(handle); gc != nil {
+		if err := gc.Signal(apiCtx, int(syscall.SIGTERM)); err != nil {
+			d.logger.Debug("vsock SIGTERM failed", "task_id", taskID, "err", err)
+		} else {
+			d.logger.Debug("graceful shutdown initiated via vsock SIGTERM", "task_id", taskID)
+			initiated = true
+		}
+	}
+
+	// Tier 2: Ctrl+Alt+Del (x86_64 only, requires kernel support).
+	if !initiated {
+		c := machine.NewClient(handle.socketPath)
+		if err := c.SendCtrlAltDel(apiCtx); err != nil {
+			d.logger.Debug("ctrl+alt+del failed", "task_id", taskID, "err", err)
+			return // No graceful method worked; fall through to exec.Shutdown.
+		}
+		d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
+	}
+
+	// Poll until the process exits or the deadline expires.
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !handle.IsRunning() {
+				return
+			}
+		}
+	}
+}
+
 // snapshotEnabled reports whether snapshot-on-stop is enabled for the task.
 func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 	if handle.taskConfig == nil {
@@ -662,6 +686,26 @@ func (d *FirecrackerDriverPlugin) snapshotEnabled(handle *taskHandle) bool {
 		return false
 	}
 	return dc.SnapshotOnStop
+}
+
+// guestClient returns a guestapi.Client for the task if guest_api is
+// configured, or nil if the guest agent is not enabled.
+func (d *FirecrackerDriverPlugin) guestClient(handle *taskHandle) *guestapi.Client {
+	if handle.taskConfig == nil || handle.socketPath == "" {
+		return nil
+	}
+	var dc TaskConfig
+	if err := handle.taskConfig.DecodeDriverConfig(&dc); err != nil {
+		return nil
+	}
+	if dc.GuestAPI == nil {
+		return nil
+	}
+	uds := guestapi.UDSPath(handle.socketPath)
+	if uds == "" {
+		return nil
+	}
+	return guestapi.New(uds, dc.GuestAPI.Port)
 }
 
 // snapshotOnStop pauses the VM and creates a snapshot for fast restore on
@@ -767,7 +811,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return handle.forwardSignal(ctx, signal)
+	return handle.forwardSignal(ctx, signal, d.guestClient(handle))
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {
