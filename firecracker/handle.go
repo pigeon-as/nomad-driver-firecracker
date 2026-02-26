@@ -90,9 +90,13 @@ func (h *taskHandle) run() {
 // (2) Ctrl+Alt+Del — x86_64 only, SIGTERM/SIGINT only.
 // (3) executor process signal — last resort.
 func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, gc *guestapi.Client) error {
-	sig, ok := signals.SignalLookup[signalName]
+	s, ok := signals.SignalLookup[signalName]
 	if !ok {
 		return fmt.Errorf("unknown signal %q", signalName)
+	}
+	sig, ok := s.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("unsupported signal type %T", s)
 	}
 
 	// Tier 1: vsock guest agent (any architecture, any signal).
