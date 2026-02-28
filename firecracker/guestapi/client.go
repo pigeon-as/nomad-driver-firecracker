@@ -11,6 +11,7 @@
 package guestapi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,7 +31,7 @@ type Client struct {
 
 // New creates a guest API client. udsPath is the path to the Firecracker
 // vsock UDS (v.sock inside the jailer chroot). port is the guest-side
-// listener port (typically DefaultPort).
+// listener port (typically 10000).
 func New(udsPath string, port uint32) *Client {
 	c := &Client{
 		udsPath: udsPath,
@@ -69,14 +70,13 @@ func (c *Client) dialVsock(ctx context.Context, _, _ string) (net.Conn, error) {
 		return nil, fmt.Errorf("vsock CONNECT write: %w", err)
 	}
 
-	// Read response (e.g., "OK 0\n").
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
+	// Read response line (e.g., "OK 0\n"). Use buffered reader to
+	// guarantee we consume exactly one complete line.
+	resp, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("vsock CONNECT read: %w", err)
 	}
-	resp := string(buf[:n])
 	if !strings.HasPrefix(resp, "OK ") {
 		conn.Close()
 		return nil, fmt.Errorf("vsock CONNECT rejected: %s", strings.TrimSpace(resp))

@@ -29,7 +29,12 @@ Any POSIX signal can be delivered via vsock when `guest_api` is configured. With
 
 ## SIGKILL
 
-Not supported via HTTP API. Use `nomad alloc stop -no-shutdown-delay <alloc>` to skip the graceful period.
+SIGKILL is not available via the Firecracker control-plane HTTP API or Ctrl+Alt+Del path.
+It can still be delivered to the workload via the vsock `guest_api` when configured,
+or via the executor's shutdown path.
+
+Use `nomad alloc stop -no-shutdown-delay <alloc>` to skip the graceful period
+and allow the driver/executor to force-kill the VM.
 
 ## See Also
 
