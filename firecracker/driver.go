@@ -810,7 +810,7 @@ func (d *FirecrackerDriverPlugin) SignalTask(taskID string, signal string) error
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return handle.forwardSignal(ctx, signal, handle.guestClient)
+	return handle.forwardSignal(ctx, signal)
 }
 
 func (d *FirecrackerDriverPlugin) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {

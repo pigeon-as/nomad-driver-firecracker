@@ -90,7 +90,7 @@ func (h *taskHandle) run() {
 // 3-tier approach: (1) vsock guest agent — arch-independent, any signal.
 // (2) Ctrl+Alt+Del — x86_64 only, SIGTERM/SIGINT only.
 // (3) executor process signal — last resort.
-func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, gc *guestapi.Client) error {
+func (h *taskHandle) forwardSignal(ctx context.Context, signalName string) error {
 	s, ok := signals.SignalLookup[signalName]
 	if !ok {
 		return fmt.Errorf("unknown signal %q", signalName)
@@ -101,8 +101,8 @@ func (h *taskHandle) forwardSignal(ctx context.Context, signalName string, gc *g
 	}
 
 	// Tier 1: vsock guest agent (any architecture, any signal).
-	if gc != nil {
-		if err := gc.Signal(ctx, int(sig)); err != nil {
+	if h.guestClient != nil {
+		if err := h.guestClient.Signal(ctx, int(sig)); err != nil {
 			h.logger.Debug("vsock signal failed, trying fallback", "signal", signalName, "err", err)
 		} else {
 			h.logger.Info("signal delivered via vsock", "signal", signalName, "task_id", h.taskConfig.ID)
