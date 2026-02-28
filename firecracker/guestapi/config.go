@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
+
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 )
 
 // GuestAPI configures the vsock guest agent integration. Presence of
@@ -46,5 +48,5 @@ func UDSPath(socketPath string) string {
 	// socketPath = <jailerDir>/root/run/firecracker.socket
 	// chrootRoot = <jailerDir>/root
 	chrootRoot := filepath.Dir(filepath.Dir(socketPath))
-	return filepath.Join(chrootRoot, "v.sock")
+	return filepath.Join(chrootRoot, machine.VsockPath)
 }
