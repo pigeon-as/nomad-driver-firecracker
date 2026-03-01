@@ -170,8 +170,9 @@ func (m *Mmds) Validate() error {
 		}
 	}
 	if m.Metadata != "" {
-		if !json.Valid([]byte(m.Metadata)) {
-			return errors.New("mmds.metadata must be valid JSON")
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(m.Metadata), &obj); err != nil {
+			return errors.New("mmds.metadata must be a JSON object")
 		}
 	}
 	return nil

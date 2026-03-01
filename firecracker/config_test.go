@@ -99,6 +99,16 @@ func TestTaskConfig_Validate(t *testing.T) {
 			true,
 		},
 		{
+			"metadata JSON array rejected",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `["a","b"]`}},
+			true,
+		},
+		{
+			"metadata JSON string rejected",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `"hello"`}},
+			true,
+		},
+		{
 			"nil mmds is valid",
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: nil},
 			false,

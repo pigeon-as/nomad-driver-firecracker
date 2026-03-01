@@ -37,7 +37,7 @@ func BuildMmdsContent(userMetadata string, guestNet *network.GuestNetworkConfig)
 
 	payload := make(map[string]interface{})
 
-	// Merge user-provided metadata.
+	// Merge user-provided metadata (Validate ensures this is a JSON object).
 	if hasUser {
 		_ = json.Unmarshal([]byte(userMetadata), &payload)
 	}

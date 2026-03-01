@@ -73,12 +73,7 @@ When bridge networking is active, the driver reads the veth IP/mask and default 
 }
 ```
 
-The recommended guest-side approach is **pigeon-init** — a minimal init process that queries MMDS at `169.254.169.254`, unmarshals the data store as a `RunConfig`, and uses the `IPConfigs` to configure eth0. This mirrors how the [virt driver](https://github.com/hashicorp/nomad-driver-virt/) uses cloud-init for guest networking.
-
-Alternative approaches (not recommended for bridge mode):
-
-- **DHCP**: If a DHCP server is available on the bridge network
-- **Static config**: Baked into the rootfs image (only works for fixed IPs)
+The recommended guest-side approach is **pigeon-init** — a minimal init process that queries MMDS at `169.254.169.254`, unmarshals the data store as a `RunConfig`, and uses the `IPConfigs` to configure eth0.
 
 ## MMDS (Microvm Metadata Service)
 
@@ -90,9 +85,9 @@ MMDS routing is **automatically enabled** whenever the VM has at least one netwo
 
 ### Driver-injected network config
 
-In bridge mode, the driver automatically injects the guest network configuration (IP/mask and gateway read from the veth) into MMDS under the reserved `"network"` key. This happens on every boot, including snapshot restore. See [Guest Configuration](#guest-configuration) for the MMDS payload layout.
+In bridge mode, the driver automatically injects the guest network configuration (IP/mask and gateway read from the veth) into MMDS as a top-level `IPConfigs` field. This happens on every boot, including snapshot restore. See [Guest Configuration](#guest-configuration) for the MMDS payload layout.
 
-The `"network"` key is **reserved for driver use** — do not use it in user-provided metadata.
+The `IPConfigs` key is **reserved for driver use** — do not use it in user-provided metadata.
 
 ### User-provided metadata
 
