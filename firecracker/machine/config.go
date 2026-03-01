@@ -149,6 +149,14 @@ type Mmds struct {
 	Metadata  string `codec:"metadata"`
 }
 
+// GetMetadata returns the user-provided metadata string, or empty if nil.
+func (m *Mmds) GetMetadata() string {
+	if m == nil {
+		return ""
+	}
+	return m.Metadata
+}
+
 func (m *Mmds) Validate() error {
 	if m == nil {
 		return nil

@@ -6,12 +6,29 @@ package network
 import (
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"syscall"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
+
+// GuestNetworkConfig holds the IP configuration the guest needs to apply to
+// its eth0 interface. This is read from the veth inside the network namespace
+// during AutoSetup and passed to the driver so it can inject the values into
+// MMDS for pigeon-init to consume.
+//
+// The field names and JSON tags match pigeon-init's config.IPConfig struct
+// so the driver can inject this directly into the MMDS RunConfig.
+type GuestNetworkConfig struct {
+	// IP is the IPv4 address without prefix, e.g. "172.26.64.2".
+	IP string `json:"IP"`
+	// Mask is the prefix length, e.g. 20.
+	Mask int `json:"Mask"`
+	// Gateway is the default gateway IP, e.g. "172.26.64.1".
+	Gateway string `json:"Gateway"`
+}
 
 const (
 	// TapName is the name of the TAP device created inside the network namespace.
@@ -26,12 +43,16 @@ const (
 
 // AutoSetup creates a TAP device with TC redirect inside the given network
 // namespace and returns a single-element NetworkInterfaces configured to use
-// it. This is the standard path for Nomad bridge networking: the TAP device
-// bridges VM traffic through the veth created by Nomad.
-func AutoSetup(netnsPath string) (NetworkInterfaces, error) {
-	tapName, err := SetupTapRedirect(netnsPath)
+// it, along with the guest network configuration read from the veth.
+//
+// This is the standard path for Nomad bridge networking: the TAP device
+// bridges VM traffic through the veth created by Nomad. The returned
+// GuestNetworkConfig contains the IP/mask/gateway that the guest init
+// process must apply to its eth0 to participate in the network.
+func AutoSetup(netnsPath string) (NetworkInterfaces, *GuestNetworkConfig, error) {
+	tapName, guestNet, err := SetupTapRedirect(netnsPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return NetworkInterfaces{
 		{
@@ -39,7 +60,7 @@ func AutoSetup(netnsPath string) (NetworkInterfaces, error) {
 				HostDevName: tapName,
 			},
 		},
-	}, nil
+	}, guestNet, nil
 }
 
 // SetupTapRedirect creates a TAP device inside the given network namespace and
@@ -51,9 +72,12 @@ func AutoSetup(netnsPath string) (NetworkInterfaces, error) {
 //
 //	VM → TAP → (TC redirect) → veth → Nomad bridge → host (and back)
 //
+// It also reads the IP configuration from the veth so the driver can pass it
+// to the guest via MMDS.
+//
 // The caller should pass the returned TAP name as host_dev_name in the
 // Firecracker VM configuration.
-func SetupTapRedirect(netnsPath string) (string, error) {
+func SetupTapRedirect(netnsPath string) (string, *GuestNetworkConfig, error) {
 	// Lock the goroutine to the OS thread so the namespace switch doesn't
 	// leak to other goroutines via the Go scheduler.
 	runtime.LockOSThread()
@@ -61,38 +85,45 @@ func SetupTapRedirect(netnsPath string) (string, error) {
 
 	origNS, err := netns.Get()
 	if err != nil {
-		return "", fmt.Errorf("get current netns: %w", err)
+		return "", nil, fmt.Errorf("get current netns: %w", err)
 	}
 	defer origNS.Close()
 
 	targetNS, err := netns.GetFromPath(netnsPath)
 	if err != nil {
-		return "", fmt.Errorf("open netns %q: %w", netnsPath, err)
+		return "", nil, fmt.Errorf("open netns %q: %w", netnsPath, err)
 	}
 	defer targetNS.Close()
 
 	if err := netns.Set(targetNS); err != nil {
-		return "", fmt.Errorf("enter netns: %w", err)
+		return "", nil, fmt.Errorf("enter netns: %w", err)
 	}
 	defer netns.Set(origNS) //nolint:errcheck
 
 	// Find the veth that Nomad created inside the namespace.
 	veth, err := findVeth()
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+
+	// Read the veth IP configuration before creating the TAP. The guest
+	// needs this to configure its own eth0 interface.
+	guestNet, err := readVethConfig(veth)
+	if err != nil {
+		return "", nil, err
 	}
 
 	tap, err := createTap(TapName, veth.Attrs().MTU)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if err := addRedirects(veth, tap); err != nil {
 		_ = netlink.LinkDel(tap)
-		return "", err
+		return "", nil, err
 	}
 
-	return TapName, nil
+	return TapName, guestNet, nil
 }
 
 // findVeth returns the veth link in the current network namespace.
@@ -144,6 +175,16 @@ func createTap(name string, mtu int) (netlink.Link, error) {
 			return nil, fmt.Errorf("bring existing tap %q up: %w", name, err)
 		}
 		return link, nil
+	}
+
+	// Close the file descriptors that netlink opened on /dev/net/tun.
+	// Firecracker needs to open the TAP device itself; if these FDs stay
+	// open the device is "busy" and Firecracker's TUNSETIFF ioctl fails
+	// with EBUSY.
+	for _, fd := range tap.Fds {
+		if fd != nil {
+			fd.Close()
+		}
 	}
 
 	if err := netlink.LinkSetMTU(tap, mtu); err != nil {
@@ -210,4 +251,57 @@ func addRedirects(veth, tap netlink.Link) error {
 	}
 
 	return nil
+}
+
+// readVethConfig reads the IPv4 address, prefix length, and default gateway
+// from the veth link in the current network namespace. This must be called
+// while the goroutine is in the target namespace.
+func readVethConfig(veth netlink.Link) (*GuestNetworkConfig, error) {
+	addrs, err := netlink.AddrList(veth, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, fmt.Errorf("list addresses on %s: %w", veth.Attrs().Name, err)
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no IPv4 address on %s", veth.Attrs().Name)
+	}
+
+	addr := addrs[0]
+	ones, _ := addr.Mask.Size()
+
+	// Find the default gateway from the routing table.
+	routes, err := netlink.RouteList(veth, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, fmt.Errorf("list routes on %s: %w", veth.Attrs().Name, err)
+	}
+
+	var gateway string
+	for _, r := range routes {
+		if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) {
+			if r.Gw != nil {
+				gateway = r.Gw.String()
+				break
+			}
+		}
+	}
+
+	// Also check routes not bound to a specific link (default route).
+	if gateway == "" {
+		allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+		if err == nil {
+			for _, r := range allRoutes {
+				if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) {
+					if r.Gw != nil {
+						gateway = r.Gw.String()
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return &GuestNetworkConfig{
+		IP:      addr.IP.String(),
+		Mask:    ones,
+		Gateway: gateway,
+	}, nil
 }

@@ -221,14 +221,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// When Nomad provides network isolation (bridge/group mode) and the user
 	// didn't manually configure network interfaces, create a TAP device with
 	// TC redirect inside the namespace for seamless bridge networking.
+	var guestNet *network.GuestNetworkConfig
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		nifs, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
+		nifs, net, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
+		guestNet = net
 		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
+		if guestNet != nil {
+			d.logger.Debug("read guest network config from veth", "ip", guestNet.IP, "mask", guestNet.Mask, "gw", guestNet.Gateway)
+		}
 	}
 
 	vmCfg := &machine.Config{
@@ -451,11 +456,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		d.logger.Info("VM configured and started via API", "task_id", cfg.ID)
 	}
 
-	// If the user provided MMDS metadata, push it to the VM.
+	// Push MMDS metadata to the VM. Content construction lives in the
+	// machine package (domain code per AGENTS.md). MMDS routing is
+	// already enabled by ToSDK whenever networking exists.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if driverConfig.Mmds != nil && driverConfig.Mmds.Metadata != "" {
-		if mmdsErr := c.PutMmdsJSON(configCtx, driverConfig.Mmds.Metadata); mmdsErr != nil {
+	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet); mmdsContent != nil {
+		if mmdsErr := c.PutMmds(configCtx, mmdsContent); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err
 		}

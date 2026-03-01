@@ -36,7 +36,7 @@ VM → tap0 → (TC redirect) → veth → Nomad bridge → host network (and ba
 
 **Requirements:**
 - [CNI reference plugins](https://developer.hashicorp.com/nomad/docs/deploy#install-cni-reference-plugins) installed at `/opt/cni/bin/`
-- Guest must configure its network interface (see [Guest Configuration](#guest-configuration) below)
+- Guest must configure its network interface — the driver injects the IP/gateway into [MMDS](#mmds-microvm-metadata-service) automatically (see [Guest Configuration](#guest-configuration))
 
 ### Host Mode
 
@@ -57,35 +57,84 @@ The TAP device must be pre-created on the host.
 
 ## Guest Configuration
 
-The guest VM must configure its network interface to use the IP allocated by Nomad. The guest interface is typically `eth0` inside the VM. Common approaches:
+The guest VM must configure its network interface to use the IP allocated by Nomad. The guest interface is typically `eth0` inside the VM.
 
-- **systemd unit** (`fcnet.service`): A startup script that configures `eth0` with the expected IP/gateway via `ip addr add` / `ip route add`
-- **cloud-init**: If the guest image supports it
+When bridge networking is active, the driver reads the veth IP/mask and default gateway from the Nomad-allocated network namespace and injects them into MMDS as `IPConfigs`, matching pigeon-init's `RunConfig` format:
+
+```json
+{
+  "IPConfigs": [
+    {
+      "Gateway": "172.26.64.1",
+      "IP": "172.26.64.2",
+      "Mask": 20
+    }
+  ]
+}
+```
+
+The recommended guest-side approach is **pigeon-init** — a minimal init process that queries MMDS at `169.254.169.254`, unmarshals the data store as a `RunConfig`, and uses the `IPConfigs` to configure eth0. This mirrors how the [virt driver](https://github.com/hashicorp/nomad-driver-virt/) uses cloud-init for guest networking.
+
+Alternative approaches (not recommended for bridge mode):
+
 - **DHCP**: If a DHCP server is available on the bridge network
-- **Static config**: Baked into the rootfs image
+- **Static config**: Baked into the rootfs image (only works for fixed IPs)
 
 ## MMDS (Microvm Metadata Service)
 
-The driver supports [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) for passing metadata to the guest VM. Provide a JSON string in the task config:
+The driver supports [MMDS](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-user-guide.md) for passing metadata to the guest VM.
+
+### Automatic MMDS routing
+
+MMDS routing is **automatically enabled** whenever the VM has at least one network interface (bridge mode or manual `network_interface`). You do not need to declare an `mmds {}` block for MMDS to work — the driver configures it on the first NIC using MMDS V2 by default.
+
+### Driver-injected network config
+
+In bridge mode, the driver automatically injects the guest network configuration (IP/mask and gateway read from the veth) into MMDS under the reserved `"network"` key. This happens on every boot, including snapshot restore. See [Guest Configuration](#guest-configuration) for the MMDS payload layout.
+
+The `"network"` key is **reserved for driver use** — do not use it in user-provided metadata.
+
+### User-provided metadata
+
+To pass custom metadata to the guest, use the `mmds` block:
 
 ```hcl
 config {
-  metadata = <<EOF
+  mmds {
+    metadata = <<EOF
 {
   "instance-id": "i-1234567890abcdef0",
   "local-hostname": "my-vm"
 }
 EOF
+  }
 }
 ```
 
-**How it works:**
-1. The driver validates the metadata JSON when the task is started by the Nomad client
-2. After the VM starts and the API socket is ready, the driver pushes the metadata via `PUT /mmds`
-3. MMDS is configured on the first network interface (`eth0`) using MMDS version 2
-4. The guest retrieves metadata by querying `http://169.254.169.254/` (requires networking)
+User metadata is merged with driver-injected keys into a single MMDS data store. The `IPConfigs` key is **reserved for driver use** — do not use it in user-provided metadata.
 
-**Guest access:**
+### MMDS version and interface override
+
+The optional `version` and `interface` fields let you override defaults:
+
+```hcl
+config {
+  mmds {
+    version   = "V1"       # "V1" or "V2" (default: "V2")
+    interface = "primary"  # must match a network_interface name
+  }
+}
+```
+
+### How it works
+
+1. The driver validates user metadata JSON when the task starts
+2. After the VM boots and the API socket is ready, the driver pushes combined metadata via `PUT /mmds`
+3. MMDS routing is configured on the first NIC (or `mmds.interface` if specified) using MMDS V2 (or `mmds.version` if specified)
+4. The guest retrieves metadata by querying `http://169.254.169.254/`
+
+### Guest access
+
 ```bash
 # MMDS v2 requires a token
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
@@ -93,6 +142,8 @@ TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
 curl -H "X-metadata-token: $TOKEN" http://169.254.169.254/
 ```
 
-**Requirements:**
+### Requirements
+
 - At least one network interface must be configured (bridge mode or manual `network_interface`)
-- Metadata must be valid JSON
+- User-provided metadata must be valid JSON
+- The `IPConfigs` key is reserved — do not use it in user metadata

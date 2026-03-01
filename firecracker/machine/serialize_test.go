@@ -101,16 +101,19 @@ func TestToSDK_MmdsConfigNil(t *testing.T) {
 	}
 }
 
-func TestToSDK_MmdsWithoutNetworkErrors(t *testing.T) {
+func TestToSDK_MmdsWithoutNetworkNoRouting(t *testing.T) {
 	cfg := &Config{
 		BootSource: &BootSource{KernelImagePath: "vmlinux"},
 		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 		Mmds:       &Mmds{Metadata: `{"key":"value"}`},
 	}
 
-	_, err := ToSDK(cfg, nil)
-	if err == nil {
-		t.Fatal("expected error when mmds is set without network interfaces")
+	vmCfg, err := ToSDK(cfg, nil)
+	if err != nil {
+		t.Fatalf("ToSDK: %v", err)
+	}
+	if vmCfg.MmdsConfig != nil {
+		t.Error("expected MmdsConfig to be nil when no network interfaces exist")
 	}
 }
 
