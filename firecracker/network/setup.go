@@ -266,6 +266,9 @@ func readVethConfig(veth netlink.Link) (*GuestNetworkConfig, error) {
 	}
 
 	addr := addrs[0]
+	if addr.IPNet == nil {
+		return nil, fmt.Errorf("address on %s has no IPNet", veth.Attrs().Name)
+	}
 	ones, _ := addr.Mask.Size()
 
 	// Find the default gateway from the routing table.
@@ -297,6 +300,10 @@ func readVethConfig(veth netlink.Link) (*GuestNetworkConfig, error) {
 				}
 			}
 		}
+	}
+
+	if gateway == "" {
+		return nil, fmt.Errorf("no default gateway found for %s", veth.Attrs().Name)
 	}
 
 	return &GuestNetworkConfig{

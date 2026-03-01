@@ -109,6 +109,11 @@ func TestTaskConfig_Validate(t *testing.T) {
 			true,
 		},
 		{
+			"metadata with reserved IPConfigs key",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `{"IPConfigs":[]}`}},
+			true,
+		},
+		{
 			"nil mmds is valid",
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: nil},
 			false,
