@@ -223,13 +223,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// TC redirect inside the namespace for seamless bridge networking.
 	var guestNet *network.GuestNetworkConfig
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		nifs, net, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
+		nifs, netCfg, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
-		guestNet = net
+		guestNet = netCfg
 		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
 		if guestNet != nil {
 			d.logger.Debug("read guest network config from veth", "ip", guestNet.IP, "mask", guestNet.Mask, "gw", guestNet.Gateway)

@@ -174,6 +174,9 @@ func (m *Mmds) Validate() error {
 		if err := json.Unmarshal([]byte(m.Metadata), &obj); err != nil {
 			return errors.New("mmds.metadata must be a JSON object")
 		}
+		if _, ok := obj["IPConfigs"]; ok {
+			return errors.New("mmds.metadata must not contain \"IPConfigs\"; this key is reserved for driver use")
+		}
 	}
 	return nil
 }
