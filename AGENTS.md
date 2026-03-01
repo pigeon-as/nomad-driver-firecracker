@@ -8,7 +8,7 @@ This is a HashiCorp Nomad task driver plugin for Firecracker micro-VMs. It follo
 
 All code in this driver **must** follow the patterns, conventions, and idioms found in official Nomad drivers and documentation. You are **not allowed to deviate** from official patterns without an explicit, well-documented reason.
 
-Do not invent custom abstractions, add fields to `taskHandle` or `taskStore`, emit events, or introduce mechanisms that official drivers do not use. When in doubt, check the reference drivers.
+Do not invent unnecessary abstractions, emit events, or introduce mechanisms that official drivers do not use. When in doubt, check the reference drivers.
 
 ### Primary References (VM drivers — check these first)
 
@@ -33,11 +33,16 @@ For jailer, host setup, and VM configuration, align with the [official Firecrack
 
 ### What this means in practice
 
-- Fields on `taskHandle`, `taskStore`, or `TaskState` must correspond to equivalent fields in official drivers (e.g., `socketPath` mirrors QEMU's `monitorPath`).
-- Do not emit events outside of `TaskEvents()` — official executor-based drivers don't emit lifecycle events.
+This driver has two layers:
+
+1. **Framework code** (`driver.go`, `handle.go`, `state.go`) — must follow official driver patterns exactly. Plugin scaffolding, task lifecycle, state management, concurrency, `run()`, `TaskStatus()`, etc. When unsure, check the QEMU driver first.
+2. **Domain code** (`guestapi/`, `machine/`, `snapshot/`, `jailer/`, `network/`) — Firecracker-specific logic in cleanly separated subpackages. Free to do what the domain needs.
+
+Rules for framework code:
+- `taskHandle` fields should match official drivers. Domain-specific client fields are fine (Docker stores `*client.Client`, Virt stores `VMGetter`) — just don't invent state that doesn't serve runtime communication with the workload.
+- Do not emit events outside of `TaskEvents()`.
 - Keep `run()` minimal — only update state fields, no side effects.
-- Domain-specific logic (jailer, Firecracker API) should be cleanly separated from driver framework code.
-- When unsure about a pattern, check the QEMU driver first — it's the closest match to this project.
+- Signal/stop paths may differ from executor-based drivers because VM guests can't receive host signals directly. Vsock and Ctrl+Alt+Del are the Firecracker equivalents of Docker's `ContainerKill`.
 
 ## Production Readiness Cross-Check
 
@@ -56,7 +61,7 @@ Before merging significant changes, cross-check every function in the driver aga
 11. **run(), TaskStatus(), IsRunning()**: state update patterns
 12. **taskStore**: concurrency patterns
 
-Flag any deviation. Fix unless there is an explicit, documented reason for the difference (e.g., domain-specific Firecracker behavior like Ctrl+Alt+Del graceful shutdown).
+Flag any deviation in framework code. Domain-specific behavior (vsock signals, Ctrl+Alt+Del, snapshot, jailer) is expected and does not need justification as long as it lives in the appropriate subpackage or is clearly Firecracker-specific.
 
 ## Build & Test
 

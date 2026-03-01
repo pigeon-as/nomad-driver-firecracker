@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 	"github.com/hashicorp/nomad/plugins/shared/structs"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/guestapi"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
@@ -219,14 +221,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// When Nomad provides network isolation (bridge/group mode) and the user
 	// didn't manually configure network interfaces, create a TAP device with
 	// TC redirect inside the namespace for seamless bridge networking.
+	var guestNet *network.GuestNetworkConfig
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		nifs, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
+		nifs, netCfg, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
+		guestNet = netCfg
 		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
+		if guestNet != nil {
+			d.logger.Debug("read guest network config from veth", "ip", guestNet.IP, "mask", guestNet.Mask, "gw", guestNet.Gateway)
+		}
 	}
 
 	vmCfg := &machine.Config{
@@ -449,15 +456,24 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		d.logger.Info("VM configured and started via API", "task_id", cfg.ID)
 	}
 
-	// If the user provided MMDS metadata, push it to the VM.
+	// Push MMDS metadata to the VM. Content construction lives in the
+	// machine package (domain code per AGENTS.md). MMDS routing is
+	// already enabled by ToSDK whenever networking exists.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if driverConfig.Mmds != nil && driverConfig.Mmds.Metadata != "" {
-		if mmdsErr := c.PutMmdsJSON(configCtx, driverConfig.Mmds.Metadata); mmdsErr != nil {
+	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet); mmdsContent != nil {
+		if mmdsErr := c.PutMmds(configCtx, mmdsContent); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err
 		}
 		d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
+	}
+
+	var gc *guestapi.Client
+	if driverConfig.GuestAPI != nil && socketPath != "" {
+		if uds := guestapi.UDSPath(socketPath); uds != "" {
+			gc = guestapi.New(uds, driverConfig.GuestAPI.Port)
+		}
 	}
 
 	h := &taskHandle{
@@ -469,6 +485,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		startedAt:    time.Now().Round(time.Millisecond),
 		logger:       d.logger,
 		socketPath:   socketPath,
+		guestClient:  gc,
 	}
 
 	driverState := TaskState{
@@ -529,6 +546,16 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		}
 	}
 
+	var gc *guestapi.Client
+	if socketPath != "" {
+		var dc TaskConfig
+		if err := taskState.TaskConfig.DecodeDriverConfig(&dc); err == nil && dc.GuestAPI != nil {
+			if uds := guestapi.UDSPath(socketPath); uds != "" {
+				gc = guestapi.New(uds, dc.GuestAPI.Port)
+			}
+		}
+	}
+
 	h := &taskHandle{
 		exec:         execImpl,
 		pid:          taskState.Pid,
@@ -539,6 +566,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 		exitResult:   &drivers.ExitResult{},
 		logger:       d.logger,
 		socketPath:   socketPath,
+		guestClient:  gc,
 	}
 
 	d.tasks.Set(taskState.TaskConfig.ID, h)
@@ -607,32 +635,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		// below regardless.
 		d.snapshotOnStop(handle, time.Until(deadline))
 	} else {
-		// Graceful shutdown via Ctrl+Alt+Del, then poll until exit or timeout.
-		// Use the overall deadline for the API call so it doesn't consume
-		// time outside the budget.
-		apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
-		defer apiCancel()
-		c := machine.NewClient(handle.socketPath)
-		if err := c.SendCtrlAltDel(apiCtx); err != nil {
-			d.logger.Debug("graceful shutdown via ctrl+alt+del failed", "task_id", taskID, "err", err)
-		} else {
-			d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
-			ctx, cancel := context.WithDeadline(context.Background(), deadline)
-			defer cancel()
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
-		out:
-			for {
-				select {
-				case <-ctx.Done():
-					break out
-				case <-ticker.C:
-					if !handle.IsRunning() {
-						break out
-					}
-				}
-			}
-		}
+		d.gracefulShutdown(handle, taskID, deadline)
 	}
 
 	// Give exec.Shutdown only the remaining budget. When remaining is
@@ -650,6 +653,53 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 	}
 
 	return nil
+}
+
+// gracefulShutdown attempts to stop the guest workload gracefully within
+// the given deadline. Preferred path: vsock SIGTERM (arch-independent).
+// Fallback: Ctrl+Alt+Del via Firecracker API (x86_64 only, requires kernel
+// keyboard support). Polls until the process exits or the deadline expires.
+func (d *FirecrackerDriverPlugin) gracefulShutdown(handle *taskHandle, taskID string, deadline time.Time) {
+	apiCtx, apiCancel := context.WithDeadline(context.Background(), deadline)
+	defer apiCancel()
+
+	initiated := false
+
+	// Tier 1: vsock SIGTERM — works on all architectures.
+	if gc := handle.guestClient; gc != nil {
+		if err := gc.Signal(apiCtx, int(syscall.SIGTERM)); err != nil {
+			d.logger.Debug("vsock SIGTERM failed", "task_id", taskID, "err", err)
+		} else {
+			d.logger.Debug("graceful shutdown initiated via vsock SIGTERM", "task_id", taskID)
+			initiated = true
+		}
+	}
+
+	// Tier 2: Ctrl+Alt+Del (x86_64 only, requires kernel support).
+	if !initiated {
+		c := machine.NewClient(handle.socketPath)
+		if err := c.SendCtrlAltDel(apiCtx); err != nil {
+			d.logger.Debug("ctrl+alt+del failed", "task_id", taskID, "err", err)
+			return // No graceful method worked; fall through to exec.Shutdown.
+		}
+		d.logger.Debug("graceful shutdown initiated via ctrl+alt+del", "task_id", taskID)
+	}
+
+	// Poll until the process exits or the deadline expires.
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !handle.IsRunning() {
+				return
+			}
+		}
+	}
 }
 
 // snapshotEnabled reports whether snapshot-on-stop is enabled for the task.

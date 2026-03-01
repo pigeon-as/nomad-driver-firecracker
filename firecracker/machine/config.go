@@ -149,6 +149,14 @@ type Mmds struct {
 	Metadata  string `codec:"metadata"`
 }
 
+// GetMetadata returns the user-provided metadata string, or empty if nil.
+func (m *Mmds) GetMetadata() string {
+	if m == nil {
+		return ""
+	}
+	return m.Metadata
+}
+
 func (m *Mmds) Validate() error {
 	if m == nil {
 		return nil
@@ -162,8 +170,12 @@ func (m *Mmds) Validate() error {
 		}
 	}
 	if m.Metadata != "" {
-		if !json.Valid([]byte(m.Metadata)) {
-			return errors.New("mmds.metadata must be valid JSON")
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(m.Metadata), &obj); err != nil || obj == nil {
+			return errors.New("mmds.metadata must be a JSON object")
+		}
+		if _, ok := obj["IPConfigs"]; ok {
+			return errors.New("mmds.metadata must not contain \"IPConfigs\"; this key is reserved for driver use")
 		}
 	}
 	return nil

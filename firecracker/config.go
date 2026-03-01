@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
 
+	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/guestapi"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
@@ -26,6 +27,7 @@ var (
 		"balloon":           machine.BalloonHCLSpec(),
 		"vsock":             machine.VsockHCLSpec(),
 		"mmds":              machine.MmdsHCLSpec(),
+		"guest_api":         guestapi.HCLSpec(),
 		"log_level":         hclspec.NewDefault(hclspec.NewAttr("log_level", "string", false), hclspec.NewLiteral(`"Warning"`)),
 		"snapshot_on_stop":  hclspec.NewAttr("snapshot_on_stop", "bool", false),
 	})
@@ -89,6 +91,7 @@ type TaskConfig struct {
 	Balloon           *machine.Balloon          `codec:"balloon"`
 	Vsock             *machine.Vsock            `codec:"vsock"`
 	Mmds              *machine.Mmds             `codec:"mmds"`
+	GuestAPI          *guestapi.GuestAPI        `codec:"guest_api"`
 	LogLevel          string                    `codec:"log_level"`
 	SnapshotOnStop    bool                      `codec:"snapshot_on_stop"`
 }
@@ -144,6 +147,15 @@ func (c *TaskConfig) Validate() error {
 	if c.Vsock != nil {
 		if err := c.Vsock.Validate(); err != nil {
 			return err
+		}
+	}
+
+	if c.GuestAPI != nil {
+		if err := c.GuestAPI.Validate(); err != nil {
+			return err
+		}
+		if c.Vsock == nil {
+			return errors.New("guest_api requires a vsock block to be configured")
 		}
 	}
 
