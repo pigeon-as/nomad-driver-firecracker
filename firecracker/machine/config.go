@@ -171,7 +171,7 @@ func (m *Mmds) Validate() error {
 	}
 	if m.Metadata != "" {
 		var obj map[string]interface{}
-		if err := json.Unmarshal([]byte(m.Metadata), &obj); err != nil {
+		if err := json.Unmarshal([]byte(m.Metadata), &obj); err != nil || obj == nil {
 			return errors.New("mmds.metadata must be a JSON object")
 		}
 		if _, ok := obj["IPConfigs"]; ok {

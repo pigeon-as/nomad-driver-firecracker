@@ -109,6 +109,11 @@ func TestTaskConfig_Validate(t *testing.T) {
 			true,
 		},
 		{
+			"metadata JSON null rejected",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `null`}},
+			true,
+		},
+		{
 			"metadata with reserved IPConfigs key",
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `{"IPConfigs":[]}`}},
 			true,
