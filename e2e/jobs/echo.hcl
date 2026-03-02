@@ -1,13 +1,22 @@
-job "mmds" {
+job "echo" {
   datacenters = ["dc1"]
-  type        = "batch"
+  type        = "service"
 
-  group "mmds" {
+  group "echo" {
     network {
       mode = "bridge"
+      port "http" {
+        to = 5678
+      }
     }
 
-    task "firecracker" {
+    service {
+      name     = "http-echo"
+      port     = "http"
+      provider = "nomad"
+    }
+
+    task "http-echo" {
       driver = "firecracker"
 
       config {
@@ -18,25 +27,28 @@ job "mmds" {
         }
 
         drive {
-          path_on_host   = "/tmp/testdata/rootfs.ext4"
+          path_on_host   = "/tmp/testdata/http-echo.ext4"
           is_root_device = true
         }
 
         mmds {
-          metadata = <<EOF
-{"instance-id":"test-123","local-hostname":"mmds-test","ExecOverride":["/bin/sh","-c","sleep 300"]}
-EOF
+          metadata = <<-META
+{
+  "ExecOverride": ["/http-echo", "-text=hello"],
+  "Hostname": "http-echo"
+}
+META
         }
-      }
-
-      logs {
-        max_files     = 2
-        max_file_size = 5
       }
 
       resources {
         cpu    = 500
         memory = 256
+      }
+
+      logs {
+        max_files     = 2
+        max_file_size = 5
       }
     }
   }
