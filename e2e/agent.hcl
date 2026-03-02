@@ -6,7 +6,7 @@ client {
 
 plugin "nomad-driver-firecracker" {
   config {
-    image_paths = ["/tmp/firecracker-images"]
+    image_paths = ["/tmp/testdata"]
 
     jailer {
       exec_file     = "firecracker"

@@ -1,36 +1,41 @@
-PLUGIN_DIR=/tmp/nomad-plugins
-PLUGIN_BINARY=nomad-driver-firecracker
-export GO111MODULE=on
+export GO111MODULE := on
 
-default: build
+PLUGIN_NAME    := nomad-driver-firecracker
+TEST_DIR       := /tmp/testdata
+KERNEL_VERSION ?= 6.1.155
+INIT_VERSION   ?= latest
 
-.PHONY: clean build test e2e hack
-
-clean: ## Remove build artifacts
-	rm -rf ${PLUGIN_BINARY}
+.PHONY: build test init kernel rootfs dev e2e clean
 
 build:
-	go build -o ${PLUGIN_BINARY} .
+	mkdir -p build
+	go build -o build/$(PLUGIN_NAME) .
 
 test:
 	go test ./...
 
-hack: test
-	@mkdir -p /tmp/firecracker-images
-	if [ ! -f /tmp/firecracker-images/vmlinux ] || ! file /tmp/firecracker-images/vmlinux | grep -q ELF; then \
-		curl -fSL -o /tmp/firecracker-images/vmlinux \
-			https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin; \
-	fi
-	if [ ! -f /tmp/firecracker-images/rootfs.ext4 ]; then \
-		curl -fSL -o /tmp/firecracker-images/rootfs.ext4 \
-			https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/disks/x86_64/ubuntu-18.04.ext4; \
-	fi
-	@mkdir -p $(PLUGIN_DIR)
-	go build -o $(PLUGIN_DIR)/$(PLUGIN_BINARY) .
-	nomad agent -dev -plugin-dir=$(PLUGIN_DIR) -config=$(shell pwd)/e2e/agent.hcl
+init:
+	mkdir -p $(TEST_DIR)
+	CGO_ENABLED=0 GOOS=linux GOBIN=$(TEST_DIR) go install -trimpath -ldflags="-s -w" github.com/pigeon-as/pigeon-init/cmd/init@$(INIT_VERSION)
+	cd $(TEST_DIR) && echo init | cpio -o -H newc > initrd.cpio
 
-clean-hack:
-	rm -rf /tmp/firecracker-images
+kernel:
+	mkdir -p $(TEST_DIR)
+	curl -fSL -o $(TEST_DIR)/vmlinux.tar.gz \
+		https://github.com/pigeon-as/pigeon-kernel/releases/download/v$(KERNEL_VERSION)/pigeon-kernel-$(KERNEL_VERSION)-x86_64.tar.gz
+	tar -xzf $(TEST_DIR)/vmlinux.tar.gz -C $(TEST_DIR) vmlinux
+	rm -f $(TEST_DIR)/vmlinux.tar.gz
+
+rootfs:
+	mkdir -p $(TEST_DIR)
+	scripts/build-rootfs.sh alpine:3.20 $(TEST_DIR)/rootfs.ext4
+	scripts/build-rootfs.sh hashicorp/http-echo $(TEST_DIR)/http-echo.ext4
+
+dev:
+	nomad agent -dev -plugin-dir=$(abspath build) -config=$(abspath e2e/agent.hcl)
 
 e2e:
 	go test -tags=e2e -count=1 -v ./e2e
+
+clean:
+	rm -rf build $(TEST_DIR)

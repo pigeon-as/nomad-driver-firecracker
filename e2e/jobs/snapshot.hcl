@@ -10,12 +10,13 @@ job "snapshot" {
         snapshot_on_stop = true
 
         boot_source {
-          kernel_image_path = "/tmp/firecracker-images/vmlinux"
-          boot_args         = "console=ttyS0 reboot=k panic=1"
+          kernel_image_path = "/tmp/testdata/vmlinux"
+          initrd_path       = "/tmp/testdata/initrd.cpio"
+          boot_args         = "console=ttyS0 reboot=k panic=1 pci=off"
         }
 
         drive {
-          path_on_host   = "/tmp/firecracker-images/rootfs.ext4"
+          path_on_host   = "/tmp/testdata/rootfs.ext4"
           is_root_device = true
         }
       }
