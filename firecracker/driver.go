@@ -258,6 +258,10 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			// Calculate the virtio-blk device letter based on drive index.
 			// User-specified drives come first, volume drives are appended.
 			driveIdx := len(driverConfig.Drives)
+			if driveIdx > 25 {
+				_ = os.RemoveAll(jailerPath)
+				return nil, nil, fmt.Errorf("too many drives (%d); maximum 26 virtio-blk devices supported", driveIdx+1)
+			}
 			devLetter := string(rune('a' + driveIdx))
 			guestDev := "/dev/vd" + devLetter
 
