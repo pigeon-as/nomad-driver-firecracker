@@ -4,9 +4,11 @@
 package snapshot
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -57,6 +59,9 @@ func (l Loc) Save(chrootRoot string) error {
 		src := filepath.Join(chrootRoot, name)
 		dst := filepath.Join(dir, name)
 		if err := os.Rename(src, dst); err != nil {
+			if errors.Is(err, syscall.EXDEV) {
+				return fmt.Errorf("snapshot and chroot must be on the same filesystem: %w", err)
+			}
 			return fmt.Errorf("move snapshot file %s: %w", name, err)
 		}
 	}
@@ -72,6 +77,9 @@ func (l Loc) Link(chrootRoot string) error {
 		src := filepath.Join(dir, name)
 		dst := filepath.Join(chrootRoot, name)
 		if err := os.Link(src, dst); err != nil {
+			if errors.Is(err, syscall.EXDEV) {
+				return fmt.Errorf("snapshot and chroot must be on the same filesystem: %w", err)
+			}
 			return fmt.Errorf("link snapshot file %s: %w", name, err)
 		}
 	}

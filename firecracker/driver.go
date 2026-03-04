@@ -134,37 +134,29 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, chrootRoot,
 		return fmt.Errorf("driver configuration not initialized")
 	}
 
-	jailerRootDir := chrootRoot
-
-	guestCfg := &jailer.GuestFileConfig{
-		Kernel: cfg.BootSource.KernelImagePath,
-		Initrd: cfg.BootSource.InitrdPath,
+	drivePaths := make([]string, len(cfg.Drives))
+	for i, drive := range cfg.Drives {
+		drivePaths[i] = drive.PathOnHost
 	}
 
-	if len(cfg.Drives) > 0 {
-		guestCfg.Drives = make([]string, len(cfg.Drives))
-		for i, drive := range cfg.Drives {
-			guestCfg.Drives[i] = drive.PathOnHost
-		}
-	}
-
-	params := &jailer.PrepareGuestFilesParams{
-		Config:       guestCfg,
-		AllocDir:     allocDir,
-		AllowedPaths: d.config.ImagePaths,
-		ChrootPath:   jailerRootDir,
-	}
-
-	paths, err := jailer.PrepareGuestFiles(params)
+	resKernel, resInitrd, resDrives, err := jailer.PrepareGuestFiles(
+		chrootRoot, cfg.BootSource.KernelImagePath, cfg.BootSource.InitrdPath,
+		drivePaths, allocDir, d.config.ImagePaths,
+	)
 	if err != nil {
 		return err
 	}
 
-	cfg.BootSource.KernelImagePath = paths.Kernel
-	cfg.BootSource.InitrdPath = paths.Initrd
-	for i := range cfg.Drives {
-		if i < len(paths.Drives) {
-			cfg.Drives[i].PathOnHost = paths.Drives[i]
+	// Update config to use chroot-relative basenames.
+	if resKernel != "" {
+		cfg.BootSource.KernelImagePath = filepath.Base(resKernel)
+	}
+	if resInitrd != "" {
+		cfg.BootSource.InitrdPath = filepath.Base(resInitrd)
+	}
+	for i, p := range resDrives {
+		if p != "" {
+			cfg.Drives[i].PathOnHost = filepath.Base(p)
 		}
 	}
 
@@ -181,11 +173,11 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	var driverConfig TaskConfig
 	if err := cfg.DecodeDriverConfig(&driverConfig); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode driver config: %v", err)
+		return nil, nil, fmt.Errorf("failed to decode driver config: %w", err)
 	}
 
 	if err := driverConfig.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("invalid task configuration: %v", err)
+		return nil, nil, fmt.Errorf("invalid task configuration: %w", err)
 	}
 
 	if d.config == nil || d.config.Jailer == nil {
@@ -205,12 +197,12 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// still present. The jailer requires a clean directory tree on start.
 	jailerPath := jailer.TaskDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
 	if err := os.RemoveAll(jailerPath); err != nil {
-		return nil, nil, fmt.Errorf("failed to clean existing jailer chroot %s: %v", jailerPath, err)
+		return nil, nil, fmt.Errorf("failed to clean existing jailer chroot %s: %w", jailerPath, err)
 	}
 
 	chrootRoot, err := jailer.BuildChrootDir(jConfig.ChrootBase, jID, jConfig.ExecFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create jailer chroot: %v", err)
+		return nil, nil, fmt.Errorf("failed to create jailer chroot: %w", err)
 	}
 
 	if err := d.prepareGuestFiles(&driverConfig, chrootRoot, cfg.AllocDir); err != nil {
@@ -226,13 +218,41 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		nifs, netCfg, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
-			return nil, nil, fmt.Errorf("failed to setup bridge networking: %v", tapErr)
+			return nil, nil, fmt.Errorf("failed to setup bridge networking: %w", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
 		guestNet = netCfg
 		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
 		if guestNet != nil {
 			d.logger.Debug("read guest network config from veth", "ip", guestNet.IP, "mask", guestNet.Mask, "gw", guestNet.Gateway)
+		}
+	}
+
+	// When Nomad provides host volume mounts and the host path is a block
+	// device, auto-attach it as a Firecracker drive.
+	var guestMounts []machine.GuestMount
+	if len(cfg.Mounts) > 0 {
+		volumeDrives, mounts, volErr := machine.AttachHostVolumes(cfg.Mounts, len(driverConfig.Drives))
+		if volErr != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, volErr
+		}
+		driverConfig.Drives = append(driverConfig.Drives, volumeDrives...)
+		guestMounts = mounts
+
+		// Link volume block devices into the chroot via mknod.
+		volumePaths := make([]string, len(volumeDrives))
+		volumeStart := len(driverConfig.Drives) - len(volumeDrives)
+		for i := range volumeDrives {
+			volumePaths[i] = driverConfig.Drives[volumeStart+i].PathOnHost
+		}
+		resolved, err := jailer.LinkDeviceNodes(chrootRoot, volumePaths)
+		if err != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, fmt.Errorf("failed to link volume drives into chroot: %w", err)
+		}
+		for i := range volumeDrives {
+			driverConfig.Drives[volumeStart+i].PathOnHost = filepath.Base(resolved[i])
 		}
 	}
 
@@ -251,20 +271,19 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	restoreFromSnapshot := driverConfig.SnapshotOnStop && snapLoc.Has()
 
 	// Validate the VM configuration eagerly, before launching the process.
-	var vmSDK *models.FullVMConfiguration
-	if !restoreFromSnapshot {
-		vmSDK, err = machine.ToSDK(vmCfg, cfg.Resources)
-		if err != nil {
-			_ = os.RemoveAll(jailerPath)
-			return nil, nil, fmt.Errorf("invalid vm configuration: %v", err)
-		}
+	// This runs even on the snapshot restore path so that obvious config
+	// errors (e.g. missing kernel) are caught before spawning the jailer.
+	vmSDK, err := machine.ToSDK(vmCfg, cfg.Resources)
+	if err != nil {
+		_ = os.RemoveAll(jailerPath)
+		return nil, nil, fmt.Errorf("invalid vm configuration: %w", err)
 	}
 
 	if restoreFromSnapshot {
 		// Link snapshot files into the chroot so Firecracker can load them.
 		if err := snapLoc.Link(chrootRoot); err != nil {
 			_ = os.RemoveAll(jailerPath)
-			return nil, nil, fmt.Errorf("failed to link snapshot files: %v", err)
+			return nil, nil, fmt.Errorf("failed to link snapshot files: %w", err)
 		}
 		d.logger.Info("restoring from snapshot", "task_id", cfg.ID)
 	}
@@ -285,7 +304,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	execImpl, pluginClient, err := executor.CreateExecutor(d.logger, d.nomadConfig, executorConfig)
 	if err != nil {
 		_ = os.RemoveAll(jailerPath)
-		return nil, nil, fmt.Errorf("failed to create executor: %v", err)
+		return nil, nil, fmt.Errorf("failed to create executor: %w", err)
 	}
 
 	socketPath := jailer.SocketPath(jailerPath)
@@ -313,7 +332,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	if cfg.User != "" {
 		uid, gid, resolveErr := jailer.ResolveUserIDs(cfg.User)
 		if resolveErr != nil {
-			err = fmt.Errorf("failed to resolve task user %q for jailer: %v", cfg.User, resolveErr)
+			err = fmt.Errorf("failed to resolve task user %q for jailer: %w", cfg.User, resolveErr)
 			return nil, nil, err
 		}
 		params.UID = uid
@@ -332,13 +351,13 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// a relative name against the task directory (binary hijack).
 	jailerBin, err := exec.LookPath(jConfig.Bin())
 	if err != nil {
-		err = fmt.Errorf("jailer binary %q not found in PATH: %v", jConfig.Bin(), err)
+		err = fmt.Errorf("jailer binary %q not found in PATH: %w", jConfig.Bin(), err)
 		return nil, nil, err
 	}
 
 	fcBin, err := exec.LookPath(jConfig.ExecFile)
 	if err != nil {
-		err = fmt.Errorf("firecracker binary %q not found in PATH: %v", jConfig.ExecFile, err)
+		err = fmt.Errorf("firecracker binary %q not found in PATH: %w", jConfig.ExecFile, err)
 		return nil, nil, err
 	}
 
@@ -351,7 +370,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// via sequential API calls after the socket is ready.
 	jArgs, err := localJConfig.BuildArgs(params)
 	if err != nil {
-		err = fmt.Errorf("invalid jailer configuration: %v", err)
+		err = fmt.Errorf("invalid jailer configuration: %w", err)
 		return nil, nil, err
 	}
 	execCmd := &executor.ExecCommand{
@@ -366,7 +385,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 
 	ps, err := execImpl.Launch(execCmd)
 	if err != nil {
-		err = fmt.Errorf("failed to launch command with executor: %v", err)
+		err = fmt.Errorf("failed to launch command with executor: %w", err)
 		return nil, nil, err
 	}
 
@@ -378,7 +397,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// available within the timeout the process failed to start.
 	// Matches the firecracker-go-sdk default of 3s with 10ms polling.
 	if waitErr := machine.WaitForReady(d.ctx, socketPath, 3*time.Second); waitErr != nil {
-		err = fmt.Errorf("firecracker socket not ready: %v", waitErr)
+		err = fmt.Errorf("firecracker socket not ready: %w", waitErr)
 		return nil, nil, err
 	}
 
@@ -389,11 +408,11 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	logFile := filepath.Join(chrootRoot, machine.LogFile)
 	f, createErr := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if createErr != nil {
-		err = fmt.Errorf("failed to create firecracker log file: %v", createErr)
+		err = fmt.Errorf("failed to create firecracker log file: %w", createErr)
 		return nil, nil, err
 	}
 	if closeErr := f.Close(); closeErr != nil {
-		err = fmt.Errorf("failed to close firecracker log file: %v", closeErr)
+		err = fmt.Errorf("failed to close firecracker log file: %w", closeErr)
 		return nil, nil, err
 	}
 
@@ -401,7 +420,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// Firecracker can write to the log file after pivot_root.
 	if params.UID != nil && params.GID != nil {
 		if chownErr := os.Chown(logFile, *params.UID, *params.GID); chownErr != nil {
-			err = fmt.Errorf("failed to chown firecracker log file: %v", chownErr)
+			err = fmt.Errorf("failed to chown firecracker log file: %w", chownErr)
 			return nil, nil, err
 		}
 	}
@@ -430,7 +449,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			ShowLogOrigin: &showLogOrigin,
 		}
 		if logErr := c.PutLogger(configCtx, logger); logErr != nil {
-			err = fmt.Errorf("PUT /logger: %v", logErr)
+			err = fmt.Errorf("PUT /logger: %w", logErr)
 			return nil, nil, err
 		}
 		d.logger.Debug("firecracker logger configured", "task_id", cfg.ID, "level", logLevel)
@@ -442,7 +461,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		if loadErr := c.LoadSnapshot(configCtx, snapshot.VMStatePath, snapshot.MemPath); loadErr != nil {
 			d.logger.Warn("snapshot restore failed, removing snapshot for cold boot on next restart", "task_id", cfg.ID, "err", loadErr)
 			_ = snapLoc.RemoveDir()
-			err = fmt.Errorf("failed to load snapshot: %v", loadErr)
+			err = fmt.Errorf("failed to load snapshot: %w", loadErr)
 			return nil, nil, err
 		}
 		d.logger.Info("restored from snapshot", "task_id", cfg.ID)
@@ -450,7 +469,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		// Cold boot: configure each resource via sequential API calls,
 		// following the firecracker-go-sdk handler chain order.
 		if configErr := c.ConfigureVM(configCtx, vmSDK); configErr != nil {
-			err = fmt.Errorf("failed to configure VM via API: %v", configErr)
+			err = fmt.Errorf("failed to configure VM via API: %w", configErr)
 			return nil, nil, err
 		}
 		d.logger.Info("VM configured and started via API", "task_id", cfg.ID)
@@ -461,9 +480,9 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// already enabled by ToSDK whenever networking exists.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet); mmdsContent != nil {
+	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet, guestMounts); mmdsContent != nil {
 		if mmdsErr := c.PutMmds(configCtx, mmdsContent); mmdsErr != nil {
-			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
+			err = fmt.Errorf("failed to set MMDS metadata: %w", mmdsErr)
 			return nil, nil, err
 		}
 		d.logger.Info("MMDS metadata configured", "task_id", cfg.ID)
@@ -496,7 +515,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	if err = handle.SetDriverState(&driverState); err != nil {
-		err = fmt.Errorf("failed to set driver state: %v", err)
+		err = fmt.Errorf("failed to set driver state: %w", err)
 		return nil, nil, err
 	}
 
@@ -517,7 +536,7 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 
 	var taskState TaskState
 	if err := handle.GetDriverState(&taskState); err != nil {
-		return fmt.Errorf("failed to decode task state from handle: %v", err)
+		return fmt.Errorf("failed to decode task state from handle: %w", err)
 	}
 	d.logger.Info("recovering task", "task_id", handle.Config.ID, "pid", taskState.Pid)
 
@@ -527,12 +546,12 @@ func (d *FirecrackerDriverPlugin) RecoverTask(handle *drivers.TaskHandle) error 
 
 	plugRC, err := structs.ReattachConfigToGoPlugin(taskState.ReattachConfig)
 	if err != nil {
-		return fmt.Errorf("failed to build ReattachConfig from taskConfig state: %v", err)
+		return fmt.Errorf("failed to build ReattachConfig from taskConfig state: %w", err)
 	}
 
 	execImpl, pluginClient, err := executor.ReattachToExecutor(plugRC, d.logger, d.nomadConfig.Topology.Compute())
 	if err != nil {
-		return fmt.Errorf("failed to reattach to executor: %v", err)
+		return fmt.Errorf("failed to reattach to executor: %w", err)
 	}
 
 	socketPath, err := jailer.FindTaskSocketPath(d.config.Jailer.ChrootBase, jailerID(taskState.TaskConfig))
@@ -594,7 +613,7 @@ func (d *FirecrackerDriverPlugin) handleWait(ctx context.Context, handle *taskHa
 	ps, err := handle.exec.Wait(ctx)
 	if err != nil {
 		result = &drivers.ExitResult{
-			Err: fmt.Errorf("executor: error waiting on process: %v", err),
+			Err: fmt.Errorf("executor: error waiting on process: %w", err),
 		}
 		if ps == nil {
 			result.ExitCode = -1
@@ -649,7 +668,7 @@ func (d *FirecrackerDriverPlugin) StopTask(taskID string, timeout time.Duration,
 		if handle.pluginClient.Exited() {
 			return nil
 		}
-		return fmt.Errorf("executor Shutdown failed: %v", err)
+		return fmt.Errorf("executor Shutdown failed: %w", err)
 	}
 
 	return nil

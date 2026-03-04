@@ -127,3 +127,55 @@ func TestValidateAndResolvePath_Empty(t *testing.T) {
 		t.Errorf("expected empty, got %q", path)
 	}
 }
+
+func TestPrepareGuestFiles(t *testing.T) {
+	tmp := t.TempDir()
+	chrootRoot := filepath.Join(tmp, "chroot")
+	srcDir := filepath.Join(tmp, "images")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	kernelPath := filepath.Join(srcDir, "vmlinux")
+	drivePath := filepath.Join(srcDir, "rootfs.ext4")
+	for _, p := range []string{kernelPath, drivePath} {
+		if err := os.WriteFile(p, []byte("data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resKernel, resInitrd, resDrives, err := PrepareGuestFiles(
+		chrootRoot, kernelPath, "", []string{drivePath},
+		tmp, []string{srcDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareGuestFiles: %v", err)
+	}
+	if resKernel != kernelPath {
+		t.Errorf("kernel: got %q, want %q", resKernel, kernelPath)
+	}
+	if resInitrd != "" {
+		t.Errorf("initrd: got %q, want empty", resInitrd)
+	}
+	if len(resDrives) != 1 || resDrives[0] != drivePath {
+		t.Errorf("drives: got %v, want [%s]", resDrives, drivePath)
+	}
+
+	// Verify files were linked into chroot.
+	for _, name := range []string{"vmlinux", "rootfs.ext4"} {
+		if _, err := os.Stat(filepath.Join(chrootRoot, name)); err != nil {
+			t.Errorf("expected %s in chroot: %v", name, err)
+		}
+	}
+}
+
+func TestPrepareGuestFiles_DisallowedPath(t *testing.T) {
+	tmp := t.TempDir()
+	_, _, _, err := PrepareGuestFiles(
+		filepath.Join(tmp, "chroot"), "/etc/passwd", "", nil,
+		tmp, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for disallowed kernel path")
+	}
+}

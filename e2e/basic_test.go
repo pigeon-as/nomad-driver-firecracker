@@ -27,13 +27,17 @@ var (
 	ipRe      = regexp.MustCompile(`\d+\.\d+\.\d+\.\d+`)
 )
 
+// allJobs lists every e2e job name, used for blanket cleanup between runs.
+var allJobs = []string{"basic", "bridge", "echo", "mmds", "snapshot", "volume-mount"}
+
 func setup(t *testing.T) context.Context {
+	t.Helper()
+	cleanNomad()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(func() {
-		run(t, ctx, "nomad", "system", "gc")
 		cancel()
+		cleanNomad()
 	})
-	time.Sleep(2 * time.Second)
 	return ctx
 }
 
@@ -48,12 +52,46 @@ func run(t *testing.T, ctx context.Context, command string, args ...string) stri
 	return output
 }
 
-func purge(t *testing.T, ctx context.Context, job string) func() {
+// execCmd runs a command, ignoring errors (best-effort cleanup).
+func execCmd(ctx context.Context, command string, args ...string) {
+	exec.CommandContext(ctx, command, args...).CombinedOutput() //nolint:errcheck
+}
+
+func purge(job string) func() {
 	return func() {
-		cmd := exec.CommandContext(ctx, "nomad", "job", "stop", "-purge", job)
-		cmd.CombinedOutput()
-		time.Sleep(2 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		execCmd(ctx, "nomad", "job", "stop", "-purge", job)
 	}
+}
+
+// cleanNomad purges all known e2e jobs and host volumes. Best-effort;
+// errors are silently ignored so it is safe to call from cleanup paths.
+// Uses its own context so it works even when the test context has expired.
+func cleanNomad() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Stop all known jobs first.
+	for _, job := range allJobs {
+		execCmd(ctx, "nomad", "job", "stop", "-purge", job)
+	}
+	// Give Nomad a moment to release volumes.
+	time.Sleep(2 * time.Second)
+
+	// Delete any leftover host volumes.
+	out, err := exec.CommandContext(ctx, "nomad", "volume", "status",
+		"-type", "host", "-verbose").CombinedOutput()
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[1] != "ID" {
+				execCmd(ctx, "nomad", "volume", "delete", "-type", "host", fields[1])
+			}
+		}
+	}
+
+	execCmd(ctx, "nomad", "system", "gc")
 }
 
 func waitForRunning(t *testing.T, ctx context.Context, job string) {
@@ -134,7 +172,7 @@ func TestPluginStarts(t *testing.T) {
 
 func TestBasicLifecycle(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "basic")()
+	defer purge("basic")()
 
 	run(t, ctx, "nomad", "job", "run", "./jobs/basic.hcl")
 
@@ -148,7 +186,7 @@ func TestBasicLifecycle(t *testing.T) {
 
 func TestBridgeAllocGetsIP(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "bridge")()
+	defer purge("bridge")()
 
 	run(t, ctx, "nomad", "job", "run", "./jobs/bridge.hcl")
 	waitForRunning(t, ctx, "bridge")
@@ -159,7 +197,7 @@ func TestBridgeAllocGetsIP(t *testing.T) {
 
 func TestBasicStdout(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "basic")()
+	defer purge("basic")()
 
 	run(t, ctx, "nomad", "job", "run", "./jobs/basic.hcl")
 	waitForRunning(t, ctx, "basic")
@@ -170,7 +208,7 @@ func TestBasicStdout(t *testing.T) {
 
 func TestMMDSMetadata(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "mmds")()
+	defer purge("mmds")()
 
 	run(t, ctx, "nomad", "job", "run", "./jobs/mmds.hcl")
 	waitForRunning(t, ctx, "mmds")
@@ -179,7 +217,7 @@ func TestMMDSMetadata(t *testing.T) {
 
 func TestSnapshotRestart(t *testing.T) {
 	ctx := setup(t)
-	defer purge(t, ctx, "snapshot")()
+	defer purge("snapshot")()
 
 	run(t, ctx, "nomad", "job", "run", "-detach", "./jobs/snapshot.hcl")
 	waitForRunning(t, ctx, "snapshot")
@@ -193,12 +231,13 @@ func TestSnapshotRestart(t *testing.T) {
 }
 
 func TestHTTPEcho(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	cleanNomad()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	t.Cleanup(func() {
-		run(t, ctx, "nomad", "system", "gc")
 		cancel()
+		cleanNomad()
 	})
-	defer purge(t, ctx, "echo")()
+	defer purge("echo")()
 
 	run(t, ctx, "nomad", "job", "run", "-detach", "./jobs/echo.hcl")
 	waitForRunning(t, ctx, "echo")

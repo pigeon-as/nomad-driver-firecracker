@@ -125,9 +125,7 @@ func ToSDK(cfg *Config, res *drivers.Resources) (*models.FullVMConfiguration, er
 	// config) without requiring the user to declare an mmds {} block.
 	// The user's mmds.version and mmds.interface preferences are respected
 	// when present.
-	if cfg.MmdsConfig != nil {
-		vmCfg.MmdsConfig = cfg.MmdsConfig
-	} else if len(cfg.NetworkInterfaces) > 0 {
+	if len(cfg.NetworkInterfaces) > 0 {
 		// Determine which NIC carries MMDS traffic.
 		mmdsIface := ""
 		if cfg.Mmds != nil {

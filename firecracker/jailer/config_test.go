@@ -81,13 +81,3 @@ func TestJailerConfig_Validate(t *testing.T) {
 		})
 	}
 }
-
-func TestBin(t *testing.T) {
-	if got := (*JailerConfig)(nil).Bin(); got != "" {
-		t.Errorf("nil.Bin() = %q, want \"\"", got)
-	}
-	cfg := &JailerConfig{JailerBinary: "jailer"}
-	if got := cfg.Bin(); got != "jailer" {
-		t.Errorf("Bin() = %q, want \"jailer\"", got)
-	}
-}

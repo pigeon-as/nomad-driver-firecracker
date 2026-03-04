@@ -6,14 +6,17 @@ package jailer
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
+// This is intended for regular files (kernel images, initrd, disk images).
+// For block devices (e.g. LVM volumes), use LinkDeviceNodes instead.
 func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, drivePaths []string) error {
 	if jailerRootPath == "" {
 		return fmt.Errorf("jailer root path cannot be empty")
@@ -77,12 +80,8 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
-			// Fall back to copy for cross-device links.
 			if errors.Is(err, syscall.EXDEV) {
-				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
-					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
-				}
-				continue
+				return fmt.Errorf("cannot link %s -> %s: source and chroot are on different filesystems (EXDEV)", sourcePath, targetPath)
 			}
 			return fmt.Errorf("failed to hard link %s -> %s: %w", sourcePath, targetPath, err)
 		}
@@ -91,29 +90,82 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 	return nil
 }
 
-func copyFile(sourcePath, targetPath string) error {
-	srcFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
+// LinkDeviceNodes creates device nodes in chrootPath for block devices.
+// Symlinks (e.g. /dev/vg/lv → /dev/dm-X) are resolved before
+// reading major:minor numbers so mknod targets the real device.
+// Returns the resolved paths (parallel to the input slice) so callers
+// can update drive configs with the basenames.
+func LinkDeviceNodes(chrootPath string, devicePaths []string) ([]string, error) {
+	if chrootPath == "" {
+		return nil, fmt.Errorf("chroot path cannot be empty")
 	}
 
-	dstFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode().Perm())
-	if err != nil {
-		return err
+	if err := os.MkdirAll(chrootPath, 0750); err != nil {
+		return nil, fmt.Errorf("failed to create chroot directory: %w", err)
 	}
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		dstFile.Close()
-		return err
+	resolved := make([]string, len(devicePaths))
+
+	for i, devPath := range devicePaths {
+		if devPath == "" {
+			continue
+		}
+
+		// Resolve symlinks so we pick up the real major:minor.
+		real, err := filepath.EvalSymlinks(devPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve symlink %s: %w", devPath, err)
+		}
+		resolved[i] = real
+
+		targetPath := filepath.Join(chrootPath, filepath.Base(real))
+
+		// Idempotent: skip if the target already exists as a device node
+		// with the same major:minor.
+		if targetInfo, stErr := os.Lstat(targetPath); stErr == nil {
+			if targetInfo.Mode()&os.ModeDevice != 0 {
+				var srcStat, tgtStat unix.Stat_t
+				if unix.Stat(real, &srcStat) == nil &&
+					unix.Stat(targetPath, &tgtStat) == nil &&
+					srcStat.Rdev == tgtStat.Rdev {
+					continue
+				}
+			}
+			// Stale or non-device entry — remove and recreate.
+			if rmErr := os.Remove(targetPath); rmErr != nil {
+				return nil, fmt.Errorf("failed to remove existing target %s: %w", targetPath, rmErr)
+			}
+		} else if !os.IsNotExist(stErr) {
+			return nil, fmt.Errorf("failed to stat target %s: %w", targetPath, stErr)
+		}
+
+		if err := MknodFromSource(real, targetPath); err != nil {
+			return nil, fmt.Errorf("mknod for %s: %w", devPath, err)
+		}
 	}
 
-	return dstFile.Close()
+	return resolved, nil
+}
+
+// MknodFromSource creates a device node at targetPath with the same type
+// and major/minor numbers as sourcePath. Used for block devices (e.g. LVM
+// logical volumes) which cannot be hard-linked (Linux returns EPERM).
+func MknodFromSource(sourcePath, targetPath string) error {
+	var stat unix.Stat_t
+	if err := unix.Stat(sourcePath, &stat); err != nil {
+		return fmt.Errorf("stat %s: %w", sourcePath, err)
+	}
+
+	mode := stat.Mode & unix.S_IFMT
+	if mode != unix.S_IFBLK && mode != unix.S_IFCHR {
+		return fmt.Errorf("%s is not a device node (mode 0x%x)", sourcePath, stat.Mode)
+	}
+
+	// Preserve device type (block/char) with 0660 permissions.
+	if err := unix.Mknod(targetPath, mode|0660, int(stat.Rdev)); err != nil {
+		return fmt.Errorf("mknod %s: %w", targetPath, err)
+	}
+	return nil
 }
 
 // isAllowedImagePath reports whether path is within allocDir or allowedPaths.
@@ -170,91 +222,28 @@ func ValidateAndResolvePath(path, fieldName, allocDir string, allowedPaths []str
 	return resolved, nil
 }
 
-// GuestFileConfig represents the guest file configuration to be prepared
-type GuestFileConfig struct {
-	Kernel string
-	Initrd string
-	Drives []string
-}
-
-// GuestFilePaths holds the resolved relative paths for linked guest files
-type GuestFilePaths struct {
-	Kernel string
-	Initrd string
-	Drives []string
-}
-
-// PrepareGuestFilesParams holds parameters for preparing guest files
-type PrepareGuestFilesParams struct {
-	Config       *GuestFileConfig
-	AllocDir     string
-	AllowedPaths []string
-	ChrootPath   string
-}
-
-// PrepareGuestFiles validates, resolves, and links guest files into chroot.
-func PrepareGuestFiles(params *PrepareGuestFilesParams) (*GuestFilePaths, error) {
-	if params == nil || params.Config == nil {
-		return nil, fmt.Errorf("prepare guest files: invalid parameters")
+// PrepareGuestFiles validates, resolves, and links kernel/initrd/drive files
+// into the jailer chroot. Returns the resolved absolute paths (empty string
+// for optional unset paths). The caller should update its config to use
+// filepath.Base() of each returned path for chroot-relative references.
+func PrepareGuestFiles(chrootRoot, kernelPath, initrdPath string, drivePaths []string, allocDir string, allowedPaths []string) (resolvedKernel, resolvedInitrd string, resolvedDrives []string, err error) {
+	resolvedKernel, err = ValidateAndResolvePath(kernelPath, "kernel", allocDir, allowedPaths)
+	if err != nil {
+		return
 	}
-	// Validate and resolve kernel path
-	var kernelPath string
-	if params.Config.Kernel != "" {
-		var err error
-		kernelPath, err = ValidateAndResolvePath(params.Config.Kernel, "kernel", params.AllocDir, params.AllowedPaths)
+	resolvedInitrd, err = ValidateAndResolvePath(initrdPath, "initrd", allocDir, allowedPaths)
+	if err != nil {
+		return
+	}
+	resolvedDrives = make([]string, len(drivePaths))
+	for i, p := range drivePaths {
+		resolvedDrives[i], err = ValidateAndResolvePath(p, fmt.Sprintf("drive[%d]", i), allocDir, allowedPaths)
 		if err != nil {
-			return nil, err
+			return
 		}
 	}
-	// Validate and resolve initrd path
-	var initrdPath string
-	if params.Config.Initrd != "" {
-		var err error
-		initrdPath, err = ValidateAndResolvePath(params.Config.Initrd, "initrd", params.AllocDir, params.AllowedPaths)
-		if err != nil {
-			return nil, err
-		}
+	if err = LinkGuestFiles(chrootRoot, resolvedKernel, resolvedInitrd, resolvedDrives); err != nil {
+		err = fmt.Errorf("failed to link guest files: %w", err)
 	}
-	// Validate and resolve drive paths
-	var drivePaths []string
-	if len(params.Config.Drives) > 0 {
-		drivePaths = make([]string, len(params.Config.Drives))
-		for i, drivePathCfg := range params.Config.Drives {
-			if drivePathCfg != "" {
-				var err error
-				drivePaths[i], err = ValidateAndResolvePath(drivePathCfg, fmt.Sprintf("drive[%d]", i), params.AllocDir, params.AllowedPaths)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-	// Link all files into chroot
-	if err := LinkGuestFiles(params.ChrootPath, kernelPath, initrdPath, drivePaths); err != nil {
-		return nil, fmt.Errorf("failed to link guest files: %w", err)
-	}
-
-	// Build result with relative basenames.
-	var kernelBase, initrdBase string
-	if kernelPath != "" {
-		kernelBase = filepath.Base(kernelPath)
-	}
-	if initrdPath != "" {
-		initrdBase = filepath.Base(initrdPath)
-	}
-
-	paths := &GuestFilePaths{
-		Kernel: kernelBase,
-		Initrd: initrdBase,
-	}
-	if len(drivePaths) > 0 {
-		paths.Drives = make([]string, len(drivePaths))
-		for i, p := range drivePaths {
-			if p != "" {
-				paths.Drives[i] = filepath.Base(p)
-			}
-		}
-	}
-
-	return paths, nil
+	return
 }

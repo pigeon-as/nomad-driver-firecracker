@@ -69,9 +69,12 @@ func TestToSDK_MmdsConfig(t *testing.T) {
 	cfg := &Config{
 		BootSource: &BootSource{KernelImagePath: "vmlinux"},
 		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
-		MmdsConfig: &models.MmdsConfig{
-			NetworkInterfaces: []string{"eth0"},
-		},
+		NetworkInterfaces: network.NetworkInterfaces{{
+			StaticConfiguration: &network.StaticNetworkConfiguration{
+				HostDevName: "tap0",
+			},
+			Name: "eth0",
+		}},
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)

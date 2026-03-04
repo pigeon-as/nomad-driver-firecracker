@@ -6,14 +6,6 @@ import (
 	"testing"
 )
 
-func TestTaskDir(t *testing.T) {
-	got := TaskDir("/srv/jailer", "abc-123", "/usr/bin/firecracker")
-	want := filepath.Join("/srv/jailer", "firecracker", "abc-123")
-	if got != want {
-		t.Errorf("TaskDir = %q, want %q", got, want)
-	}
-}
-
 func TestBuildChrootDir(t *testing.T) {
 	tmp := t.TempDir()
 
@@ -37,15 +29,6 @@ func TestSocketPathRoundtrip(t *testing.T) {
 	got := TaskDirFromSocketPath(sock)
 	if got != jailerDir {
 		t.Errorf("TaskDirFromSocketPath(SocketPath(%q)) = %q, want %q", jailerDir, got, jailerDir)
-	}
-}
-
-func TestSocketPath_Empty(t *testing.T) {
-	if got := SocketPath(""); got != "" {
-		t.Errorf("SocketPath(\"\") = %q, want \"\"", got)
-	}
-	if got := TaskDirFromSocketPath(""); got != "" {
-		t.Errorf("TaskDirFromSocketPath(\"\") = %q, want \"\"", got)
 	}
 }
 

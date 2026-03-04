@@ -4,8 +4,10 @@ PLUGIN_NAME    := nomad-driver-firecracker
 TEST_DIR       := /tmp/testdata
 KERNEL_VERSION ?= 6.1.155
 INIT_VERSION   ?= latest
+PLUGIN_DIR     ?= /tmp/nomad-plugins
+PLUGIN_VER     ?= latest
 
-.PHONY: build test init kernel rootfs dev e2e clean
+.PHONY: build test init kernel rootfs plugin dev e2e clean
 
 build:
 	mkdir -p build
@@ -31,10 +33,14 @@ rootfs:
 	scripts/build-rootfs.sh alpine:3.20 $(TEST_DIR)/rootfs.ext4
 	scripts/build-rootfs.sh hashicorp/http-echo $(TEST_DIR)/http-echo.ext4
 
-dev:
+plugin:
+	mkdir -p $(PLUGIN_DIR)
+	GOBIN=$(PLUGIN_DIR) go install github.com/pigeon-as/nomad-plugin-lvm/cmd/nomad-plugin-lvm@$(PLUGIN_VER)
+
+dev: build plugin
 	nomad agent -dev -plugin-dir=$(abspath build) -config=$(abspath e2e/agent.hcl)
 
-e2e:
+e2e: kernel init rootfs build plugin
 	go test -tags=e2e -count=1 -v ./e2e
 
 clean:

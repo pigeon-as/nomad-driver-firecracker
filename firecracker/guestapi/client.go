@@ -13,7 +13,6 @@ package guestapi
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -109,34 +108,4 @@ func (c *Client) Signal(ctx context.Context, signal int) error {
 		return fmt.Errorf("POST /v1/signals: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	return nil
-}
-
-// statusResponse is the JSON body returned by GET /v1/status.
-type statusResponse struct {
-	OK bool `json:"ok"`
-}
-
-// Status queries the guest workload status via GET /v1/status.
-// Returns true if the guest agent is responsive.
-func (c *Client) Status(ctx context.Context) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://guest/v1/status", nil)
-	if err != nil {
-		return false, err
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("GET /v1/status: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, nil
-	}
-
-	var sr statusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-		return false, fmt.Errorf("GET /v1/status: decode: %w", err)
-	}
-	return sr.OK, nil
 }

@@ -16,16 +16,16 @@ var versionRegex = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 
 func (d *FirecrackerDriverPlugin) handleFingerprint(ctx context.Context, ch chan<- *drivers.Fingerprint) {
 	defer close(ch)
-	ticker := time.NewTimer(0)
-	defer ticker.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-d.ctx.Done():
 			return
-		case <-ticker.C:
-			ticker.Reset(fingerprintPeriod)
+		case <-timer.C:
+			timer.Reset(fingerprintPeriod)
 			ch <- d.buildFingerprint()
 		}
 	}
@@ -50,7 +50,7 @@ func (d *FirecrackerDriverPlugin) buildFingerprint() *drivers.Fingerprint {
 		}
 		return fp
 	}
-	kvmFile.Close()
+	_ = kvmFile.Close()
 
 	if d.config == nil || d.config.Jailer == nil || d.config.Jailer.ExecFile == "" {
 		fp.Health = drivers.HealthStateUndetected

@@ -119,6 +119,11 @@ func TestTaskConfig_Validate(t *testing.T) {
 			true,
 		},
 		{
+			"metadata with reserved Mounts key",
+			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: &machine.Mmds{Metadata: `{"Mounts":[]}`}},
+			true,
+		},
+		{
 			"nil mmds is valid",
 			&TaskConfig{BootSource: validBoot, Drives: []machine.Drive{rootDrive}, Mmds: nil},
 			false,
