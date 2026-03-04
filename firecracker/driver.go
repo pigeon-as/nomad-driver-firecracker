@@ -273,51 +273,21 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			})
 		}
 
-		// Link volume drives into the chroot. prepareGuestFiles only
-		// handled user-configured drives; volume drives were appended
-		// afterwards and need their own linking pass.
-		//
-		// Resolve LVM symlinks (e.g. /dev/vg/lv → /dev/dm-X) up front
-		// so LinkGuestFiles operates on the real device path and mknod
-		// reliably picks up the correct major:minor numbers.
+		// Link volume block devices into the chroot. prepareGuestFiles
+		// only handled user-configured drives (regular files); volume
+		// drives are block devices and need mknod instead of hard links.
 		volumeStart := len(driverConfig.Drives) - len(guestMounts)
 		volumePaths := make([]string, len(guestMounts))
 		for i := range guestMounts {
-			orig := driverConfig.Drives[volumeStart+i].PathOnHost
-			resolved, resolveErr := filepath.EvalSymlinks(orig)
-			if resolveErr != nil {
-				d.logger.Warn("could not resolve volume symlink, using original path",
-					"path", orig, "error", resolveErr)
-				resolved = orig
-			}
-			volumePaths[i] = resolved
-			driverConfig.Drives[volumeStart+i].PathOnHost = resolved
+			volumePaths[i] = driverConfig.Drives[volumeStart+i].PathOnHost
 		}
-		if err := jailer.LinkGuestFiles(chrootRoot, "", "", volumePaths); err != nil {
+		resolved, err := jailer.LinkDeviceNodes(chrootRoot, volumePaths)
+		if err != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to link volume drives into chroot: %v", err)
 		}
-		// Verify the chroot entry is a device node, not a regular file
-		// copy. copyFile falls back for EXDEV but creates a dead-end
-		// snapshot where writes never reach the real block device.
-		for i, vp := range volumePaths {
-			target := filepath.Join(chrootRoot, filepath.Base(vp))
-			if fi, stErr := os.Lstat(target); stErr == nil {
-				if fi.Mode()&os.ModeDevice == 0 {
-					// LinkGuestFiles copied the file instead of creating
-					// a device node (EXDEV). Re-create as mknod so writes
-					// reach the real block device.
-					os.Remove(target)
-					if mkErr := jailer.MknodFromSource(vp, target); mkErr != nil {
-						_ = os.RemoveAll(jailerPath)
-						return nil, nil, fmt.Errorf("volume drive %s: mknod fallback failed: %v", vp, mkErr)
-					}
-				}
-			} else {
-				d.logger.Warn("could not stat volume drive in chroot",
-					"path", target, "error", stErr)
-			}
-			driverConfig.Drives[volumeStart+i].PathOnHost = filepath.Base(volumePaths[i])
+		for i := range guestMounts {
+			driverConfig.Drives[volumeStart+i].PathOnHost = filepath.Base(resolved[i])
 		}
 	}
 

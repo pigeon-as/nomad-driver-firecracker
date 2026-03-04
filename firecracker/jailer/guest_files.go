@@ -16,6 +16,8 @@ import (
 )
 
 // LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
+// This is intended for regular files (kernel images, initrd, disk images).
+// For block devices (e.g. LVM volumes), use LinkDeviceNodes instead.
 func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, drivePaths []string) error {
 	if jailerRootPath == "" {
 		return fmt.Errorf("jailer root path cannot be empty")
@@ -79,16 +81,7 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
-			// Device nodes (or symlinks to them, e.g. LVM /dev/vg/lv →
-			// /dev/dm-X) cannot be hard-linked across filesystems (EXDEV)
-			// or at all (EPERM). Try mknod first for both error codes so
-			// Firecracker uses the real block device, not a file copy.
-			if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EXDEV) {
-				if mkdevErr := MknodFromSource(sourcePath, targetPath); mkdevErr == nil {
-					continue
-				}
-			}
-			// Fall back to byte-for-byte copy for regular cross-device files.
+			// Fall back to byte-for-byte copy for cross-device files.
 			if errors.Is(err, syscall.EXDEV) {
 				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
 					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
@@ -100,6 +93,58 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 	}
 
 	return nil
+}
+
+// LinkDeviceNodes creates device nodes in chrootPath for block devices.
+// Symlinks (e.g. /dev/vg/lv → /dev/dm-X) are resolved before
+// reading major:minor numbers so mknod targets the real device.
+// Returns the resolved paths (parallel to the input slice) so callers
+// can update drive configs with the basenames.
+func LinkDeviceNodes(chrootPath string, devicePaths []string) ([]string, error) {
+	if chrootPath == "" {
+		return nil, fmt.Errorf("chroot path cannot be empty")
+	}
+
+	if err := os.MkdirAll(chrootPath, 0750); err != nil {
+		return nil, fmt.Errorf("failed to create chroot directory: %w", err)
+	}
+
+	resolved := make([]string, len(devicePaths))
+
+	for i, devPath := range devicePaths {
+		if devPath == "" {
+			continue
+		}
+
+		// Resolve symlinks so we pick up the real major:minor.
+		real, err := filepath.EvalSymlinks(devPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve symlink %s: %w", devPath, err)
+		}
+		resolved[i] = real
+
+		targetPath := filepath.Join(chrootPath, filepath.Base(real))
+
+		// Idempotent: skip if the target already exists as a device node
+		// with the same major:minor.
+		if targetInfo, stErr := os.Lstat(targetPath); stErr == nil {
+			if targetInfo.Mode()&os.ModeDevice != 0 {
+				continue
+			}
+			// Exists but isn't a device node — remove and recreate.
+			if rmErr := os.Remove(targetPath); rmErr != nil {
+				return nil, fmt.Errorf("failed to remove existing target %s: %w", targetPath, rmErr)
+			}
+		} else if !os.IsNotExist(stErr) {
+			return nil, fmt.Errorf("failed to stat target %s: %w", targetPath, stErr)
+		}
+
+		if err := MknodFromSource(real, targetPath); err != nil {
+			return nil, fmt.Errorf("mknod for %s: %w", devPath, err)
+		}
+	}
+
+	return resolved, nil
 }
 
 func copyFile(sourcePath, targetPath string) error {
