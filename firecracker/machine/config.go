@@ -198,7 +198,6 @@ type Config struct {
 	Drives            []Drive
 	NetworkInterfaces network.NetworkInterfaces
 	Balloon           *Balloon
-	MmdsConfig        *models.MmdsConfig
 	// LogLevel sets the Firecracker daemon log verbosity. Valid values
 	// are "Error", "Warning", "Info", "Debug" (case-sensitive).
 	// Defaults to DefaultLogLevel ("Warning") when empty.
