@@ -129,9 +129,14 @@ func LinkDeviceNodes(chrootPath string, devicePaths []string) ([]string, error) 
 		// with the same major:minor.
 		if targetInfo, stErr := os.Lstat(targetPath); stErr == nil {
 			if targetInfo.Mode()&os.ModeDevice != 0 {
-				continue
+				var srcStat, tgtStat unix.Stat_t
+				if unix.Stat(real, &srcStat) == nil &&
+					unix.Stat(targetPath, &tgtStat) == nil &&
+					srcStat.Rdev == tgtStat.Rdev {
+					continue
+				}
 			}
-			// Exists but isn't a device node — remove and recreate.
+			// Stale or non-device entry — remove and recreate.
 			if rmErr := os.Remove(targetPath); rmErr != nil {
 				return nil, fmt.Errorf("failed to remove existing target %s: %w", targetPath, rmErr)
 			}
