@@ -177,6 +177,9 @@ func (m *Mmds) Validate() error {
 		if _, ok := obj["IPConfigs"]; ok {
 			return errors.New("mmds.metadata must not contain \"IPConfigs\"; this key is reserved for driver use")
 		}
+		if _, ok := obj["Mounts"]; ok {
+			return errors.New("mmds.metadata must not contain \"Mounts\"; this key is reserved for driver use")
+		}
 	}
 	return nil
 }

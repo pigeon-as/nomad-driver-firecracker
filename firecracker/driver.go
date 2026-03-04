@@ -236,6 +236,91 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 		}
 	}
 
+	// When Nomad provides host volume mounts and the host path is a block
+	// device, auto-attach it as a Firecracker drive. This follows the same
+	// opt-in pattern as bridge networking: only activates when Nomad provides
+	// volumes via MountConfig, and the device is a block special file.
+	// The resulting MMDS Mounts config tells pigeon-init where to mount
+	// each device inside the guest.
+	var guestMounts []machine.GuestMount
+	if len(cfg.Mounts) > 0 {
+		for _, m := range cfg.Mounts {
+			info, statErr := os.Stat(m.HostPath)
+			if statErr != nil {
+				_ = os.RemoveAll(jailerPath)
+				return nil, nil, fmt.Errorf("volume mount %q: %v", m.HostPath, statErr)
+			}
+			if info.Mode()&os.ModeDevice == 0 {
+				_ = os.RemoveAll(jailerPath)
+				return nil, nil, fmt.Errorf("volume mount %q is not a block device; the firecracker driver only supports block device volume mounts", m.HostPath)
+			}
+
+			// Calculate the virtio-blk device letter based on drive index.
+			// User-specified drives come first, volume drives are appended.
+			driveIdx := len(driverConfig.Drives)
+			devLetter := string(rune('a' + driveIdx))
+			guestDev := "/dev/vd" + devLetter
+
+			driverConfig.Drives = append(driverConfig.Drives, machine.Drive{
+				PathOnHost:   m.HostPath,
+				IsRootDevice: false,
+				IsReadOnly:   m.Readonly,
+			})
+
+			guestMounts = append(guestMounts, machine.GuestMount{
+				DevicePath: guestDev,
+				MountPath:  m.TaskPath,
+			})
+		}
+
+		// Link volume drives into the chroot. prepareGuestFiles only
+		// handled user-configured drives; volume drives were appended
+		// afterwards and need their own linking pass.
+		//
+		// Resolve LVM symlinks (e.g. /dev/vg/lv → /dev/dm-X) up front
+		// so LinkGuestFiles operates on the real device path and mknod
+		// reliably picks up the correct major:minor numbers.
+		volumeStart := len(driverConfig.Drives) - len(guestMounts)
+		volumePaths := make([]string, len(guestMounts))
+		for i := range guestMounts {
+			orig := driverConfig.Drives[volumeStart+i].PathOnHost
+			resolved, resolveErr := filepath.EvalSymlinks(orig)
+			if resolveErr != nil {
+				d.logger.Warn("could not resolve volume symlink, using original path",
+					"path", orig, "error", resolveErr)
+				resolved = orig
+			}
+			volumePaths[i] = resolved
+			driverConfig.Drives[volumeStart+i].PathOnHost = resolved
+		}
+		if err := jailer.LinkGuestFiles(chrootRoot, "", "", volumePaths); err != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, fmt.Errorf("failed to link volume drives into chroot: %v", err)
+		}
+		// Verify the chroot entry is a device node, not a regular file
+		// copy. copyFile falls back for EXDEV but creates a dead-end
+		// snapshot where writes never reach the real block device.
+		for i, vp := range volumePaths {
+			target := filepath.Join(chrootRoot, filepath.Base(vp))
+			if fi, stErr := os.Lstat(target); stErr == nil {
+				if fi.Mode()&os.ModeDevice == 0 {
+					// LinkGuestFiles copied the file instead of creating
+					// a device node (EXDEV). Re-create as mknod so writes
+					// reach the real block device.
+					os.Remove(target)
+					if mkErr := jailer.MknodFromSource(vp, target); mkErr != nil {
+						_ = os.RemoveAll(jailerPath)
+						return nil, nil, fmt.Errorf("volume drive %s: mknod fallback failed: %v", vp, mkErr)
+					}
+				}
+			} else {
+				d.logger.Warn("could not stat volume drive in chroot",
+					"path", target, "error", stErr)
+			}
+			driverConfig.Drives[volumeStart+i].PathOnHost = filepath.Base(volumePaths[i])
+		}
+	}
+
 	vmCfg := &machine.Config{
 		BootSource:        driverConfig.BootSource,
 		Drives:            driverConfig.Drives,
@@ -461,7 +546,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// already enabled by ToSDK whenever networking exists.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet); mmdsContent != nil {
+	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet, guestMounts); mmdsContent != nil {
 		if mmdsErr := c.PutMmds(configCtx, mmdsContent); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %v", mmdsErr)
 			return nil, nil, err

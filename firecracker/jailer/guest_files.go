@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // LinkGuestFiles links kernel, initrd, and drives into chroot by their basename.
@@ -77,7 +79,16 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
-			// Fall back to copy for cross-device links.
+			// Device nodes (or symlinks to them, e.g. LVM /dev/vg/lv →
+			// /dev/dm-X) cannot be hard-linked across filesystems (EXDEV)
+			// or at all (EPERM). Try mknod first for both error codes so
+			// Firecracker uses the real block device, not a file copy.
+			if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EXDEV) {
+				if mkdevErr := MknodFromSource(sourcePath, targetPath); mkdevErr == nil {
+					continue
+				}
+			}
+			// Fall back to byte-for-byte copy for regular cross-device files.
 			if errors.Is(err, syscall.EXDEV) {
 				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
 					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
@@ -114,6 +125,27 @@ func copyFile(sourcePath, targetPath string) error {
 	}
 
 	return dstFile.Close()
+}
+
+// MknodFromSource creates a device node at targetPath with the same type
+// and major/minor numbers as sourcePath. Used for block devices (e.g. LVM
+// logical volumes) which cannot be hard-linked (Linux returns EPERM).
+func MknodFromSource(sourcePath, targetPath string) error {
+	var stat unix.Stat_t
+	if err := unix.Stat(sourcePath, &stat); err != nil {
+		return fmt.Errorf("stat %s: %w", sourcePath, err)
+	}
+
+	mode := stat.Mode & unix.S_IFMT
+	if mode != unix.S_IFBLK && mode != unix.S_IFCHR {
+		return fmt.Errorf("%s is not a device node (mode 0x%x)", sourcePath, stat.Mode)
+	}
+
+	// Preserve device type (block/char) with 0660 permissions.
+	if err := unix.Mknod(targetPath, mode|0660, int(stat.Rdev)); err != nil {
+		return fmt.Errorf("mknod %s: %w", targetPath, err)
+	}
+	return nil
 }
 
 // isAllowedImagePath reports whether path is within allocDir or allowedPaths.
