@@ -6,7 +6,6 @@ package jailer
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,12 +80,8 @@ func LinkGuestFiles(jailerRootPath string, kernelPath, initrdPath string, driveP
 		}
 
 		if err := os.Link(sourcePath, targetPath); err != nil {
-			// Fall back to byte-for-byte copy for cross-device files.
 			if errors.Is(err, syscall.EXDEV) {
-				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
-					return fmt.Errorf("failed to copy %s -> %s: %w", sourcePath, targetPath, copyErr)
-				}
-				continue
+				return fmt.Errorf("cannot link %s -> %s: source and chroot are on different filesystems (EXDEV)", sourcePath, targetPath)
 			}
 			return fmt.Errorf("failed to hard link %s -> %s: %w", sourcePath, targetPath, err)
 		}
@@ -150,31 +145,6 @@ func LinkDeviceNodes(chrootPath string, devicePaths []string) ([]string, error) 
 	}
 
 	return resolved, nil
-}
-
-func copyFile(sourcePath, targetPath string) error {
-	srcFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode().Perm())
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		dstFile.Close()
-		return err
-	}
-
-	return dstFile.Close()
 }
 
 // MknodFromSource creates a device node at targetPath with the same type

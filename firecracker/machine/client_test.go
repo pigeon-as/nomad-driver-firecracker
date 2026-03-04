@@ -51,9 +51,6 @@ func TestNilClient(t *testing.T) {
 	if err := c.PutVsock(ctx, nil); err == nil {
 		t.Fatal("expected error from nil client")
 	}
-	if err := c.PatchBalloon(ctx, nil); err == nil {
-		t.Fatal("expected error from nil client")
-	}
 	if err := c.StartInstance(ctx); err == nil {
 		t.Fatal("expected error from nil client")
 	}

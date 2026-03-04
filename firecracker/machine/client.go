@@ -175,15 +175,6 @@ func (c *Client) PutVsock(ctx context.Context, vsock *models.Vsock) error {
 	return err
 }
 
-// PatchBalloon updates the target balloon size on a running VM.
-func (c *Client) PatchBalloon(ctx context.Context, update *models.BalloonUpdate) error {
-	if c == nil || c.client == nil {
-		return errors.New("client is not initialized")
-	}
-	_, err := c.client.PatchBalloon(ctx, update)
-	return err
-}
-
 // StartInstance boots the microVM by sending an InstanceStart action.
 // All pre-boot configuration (machine config, boot source, drives,
 // network interfaces, balloon) must be applied before calling this.

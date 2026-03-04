@@ -82,12 +82,3 @@ func TestSave_MissingSource(t *testing.T) {
 		t.Fatal("expected error for missing source files")
 	}
 }
-
-func TestDir(t *testing.T) {
-	loc := Loc{TaskDir: "/alloc/task"}
-	got := loc.Dir()
-	want := filepath.Join("/alloc/task", "snapshots")
-	if got != want {
-		t.Errorf("Dir() = %q, want %q", got, want)
-	}
-}

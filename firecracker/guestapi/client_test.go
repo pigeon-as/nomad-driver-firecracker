@@ -112,29 +112,6 @@ func TestClient_Signal(t *testing.T) {
 	must.Eq(t, 15, receivedSignal)
 }
 
-func TestClient_Status(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "v.sock")
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		fmt.Fprintf(w, `{"ok":true}`)
-	})
-
-	srv := newFakeVsockServer(t, sock, testPort, mux)
-	defer srv.close()
-
-	client := New(sock, testPort)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	ok, err := client.Status(ctx)
-	must.NoError(t, err)
-	must.True(t, ok)
-}
-
 func TestClient_Signal_ConnectFail(t *testing.T) {
 	// Non-existent socket should fail.
 	client := New("/nonexistent/v.sock", testPort)

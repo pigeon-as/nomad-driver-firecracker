@@ -6,7 +6,7 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 )
 
-func (c *JailerConfig) BuildArgs(params *BuildParams, fcArgs ...string) ([]string, error) {
+func (c *JailerConfig) BuildArgs(params *BuildParams) ([]string, error) {
 	if c == nil {
 		return nil, errors.New("jailer config is nil")
 	}
@@ -37,10 +37,6 @@ func (c *JailerConfig) BuildArgs(params *BuildParams, fcArgs ...string) ([]strin
 	}
 	if params.CgroupVersion != "" {
 		builder = builder.WithCgroupVersion(params.CgroupVersion)
-	}
-
-	if len(fcArgs) > 0 {
-		builder = builder.WithFirecrackerArgs(fcArgs...)
 	}
 
 	return builder.Args(), nil
