@@ -222,4 +222,28 @@ func ValidateAndResolvePath(path, fieldName, allocDir string, allowedPaths []str
 	return resolved, nil
 }
 
-
+// PrepareGuestFiles validates, resolves, and links kernel/initrd/drive files
+// into the jailer chroot. Returns the resolved absolute paths (empty string
+// for optional unset paths). The caller should update its config to use
+// filepath.Base() of each returned path for chroot-relative references.
+func PrepareGuestFiles(chrootRoot, kernelPath, initrdPath string, drivePaths []string, allocDir string, allowedPaths []string) (resolvedKernel, resolvedInitrd string, resolvedDrives []string, err error) {
+	resolvedKernel, err = ValidateAndResolvePath(kernelPath, "kernel", allocDir, allowedPaths)
+	if err != nil {
+		return
+	}
+	resolvedInitrd, err = ValidateAndResolvePath(initrdPath, "initrd", allocDir, allowedPaths)
+	if err != nil {
+		return
+	}
+	resolvedDrives = make([]string, len(drivePaths))
+	for i, p := range drivePaths {
+		resolvedDrives[i], err = ValidateAndResolvePath(p, fmt.Sprintf("drive[%d]", i), allocDir, allowedPaths)
+		if err != nil {
+			return
+		}
+	}
+	if err = LinkGuestFiles(chrootRoot, resolvedKernel, resolvedInitrd, resolvedDrives); err != nil {
+		err = fmt.Errorf("failed to link guest files: %w", err)
+	}
+	return
+}

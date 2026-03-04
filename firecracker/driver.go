@@ -134,42 +134,27 @@ func (d *FirecrackerDriverPlugin) prepareGuestFiles(cfg *TaskConfig, chrootRoot,
 		return fmt.Errorf("driver configuration not initialized")
 	}
 
-	allowed := d.config.ImagePaths
-
-	// Validate and resolve kernel path.
-	kernelPath, err := jailer.ValidateAndResolvePath(cfg.BootSource.KernelImagePath, "kernel", allocDir, allowed)
-	if err != nil {
-		return err
-	}
-
-	// Validate and resolve initrd path.
-	initrdPath, err := jailer.ValidateAndResolvePath(cfg.BootSource.InitrdPath, "initrd", allocDir, allowed)
-	if err != nil {
-		return err
-	}
-
-	// Validate and resolve drive paths.
 	drivePaths := make([]string, len(cfg.Drives))
 	for i, drive := range cfg.Drives {
-		drivePaths[i], err = jailer.ValidateAndResolvePath(drive.PathOnHost, fmt.Sprintf("drive[%d]", i), allocDir, allowed)
-		if err != nil {
-			return err
-		}
+		drivePaths[i] = drive.PathOnHost
 	}
 
-	// Link all files into the chroot.
-	if err := jailer.LinkGuestFiles(chrootRoot, kernelPath, initrdPath, drivePaths); err != nil {
-		return fmt.Errorf("failed to link guest files: %w", err)
+	resKernel, resInitrd, resDrives, err := jailer.PrepareGuestFiles(
+		chrootRoot, cfg.BootSource.KernelImagePath, cfg.BootSource.InitrdPath,
+		drivePaths, allocDir, d.config.ImagePaths,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Update config to use chroot-relative basenames.
-	if kernelPath != "" {
-		cfg.BootSource.KernelImagePath = filepath.Base(kernelPath)
+	if resKernel != "" {
+		cfg.BootSource.KernelImagePath = filepath.Base(resKernel)
 	}
-	if initrdPath != "" {
-		cfg.BootSource.InitrdPath = filepath.Base(initrdPath)
+	if resInitrd != "" {
+		cfg.BootSource.InitrdPath = filepath.Base(resInitrd)
 	}
-	for i, p := range drivePaths {
+	for i, p := range resDrives {
 		if p != "" {
 			cfg.Drives[i].PathOnHost = filepath.Base(p)
 		}
@@ -244,52 +229,21 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	}
 
 	// When Nomad provides host volume mounts and the host path is a block
-	// device, auto-attach it as a Firecracker drive. This follows the same
-	// opt-in pattern as bridge networking: only activates when Nomad provides
-	// volumes via MountConfig, and the device is a block special file.
-	// The resulting MMDS Mounts config tells pigeon-init where to mount
-	// each device inside the guest.
+	// device, auto-attach it as a Firecracker drive.
 	var guestMounts []machine.GuestMount
 	if len(cfg.Mounts) > 0 {
-		for _, m := range cfg.Mounts {
-			info, statErr := os.Stat(m.HostPath)
-			if statErr != nil {
-				_ = os.RemoveAll(jailerPath)
-				return nil, nil, fmt.Errorf("volume mount %q: %w", m.HostPath, statErr)
-			}
-			if info.Mode()&os.ModeDevice == 0 {
-				_ = os.RemoveAll(jailerPath)
-				return nil, nil, fmt.Errorf("volume mount %q is not a block device; the firecracker driver only supports block device volume mounts", m.HostPath)
-			}
-
-			// Calculate the virtio-blk device letter based on drive index.
-			// User-specified drives come first, volume drives are appended.
-			driveIdx := len(driverConfig.Drives)
-			if driveIdx > 25 {
-				_ = os.RemoveAll(jailerPath)
-				return nil, nil, fmt.Errorf("too many drives (%d); maximum 26 virtio-blk devices supported", driveIdx+1)
-			}
-			devLetter := string(rune('a' + driveIdx))
-			guestDev := "/dev/vd" + devLetter
-
-			driverConfig.Drives = append(driverConfig.Drives, machine.Drive{
-				PathOnHost:   m.HostPath,
-				IsRootDevice: false,
-				IsReadOnly:   m.Readonly,
-			})
-
-			guestMounts = append(guestMounts, machine.GuestMount{
-				DevicePath: guestDev,
-				MountPath:  m.TaskPath,
-			})
+		volumeDrives, mounts, volErr := machine.AttachHostVolumes(cfg.Mounts, len(driverConfig.Drives))
+		if volErr != nil {
+			_ = os.RemoveAll(jailerPath)
+			return nil, nil, volErr
 		}
+		driverConfig.Drives = append(driverConfig.Drives, volumeDrives...)
+		guestMounts = mounts
 
-		// Link volume block devices into the chroot. prepareGuestFiles
-		// only handled user-configured drives (regular files); volume
-		// drives are block devices and need mknod instead of hard links.
-		volumeStart := len(driverConfig.Drives) - len(guestMounts)
-		volumePaths := make([]string, len(guestMounts))
-		for i := range guestMounts {
+		// Link volume block devices into the chroot via mknod.
+		volumePaths := make([]string, len(volumeDrives))
+		volumeStart := len(driverConfig.Drives) - len(volumeDrives)
+		for i := range volumeDrives {
 			volumePaths[i] = driverConfig.Drives[volumeStart+i].PathOnHost
 		}
 		resolved, err := jailer.LinkDeviceNodes(chrootRoot, volumePaths)
@@ -297,7 +251,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to link volume drives into chroot: %w", err)
 		}
-		for i := range guestMounts {
+		for i := range volumeDrives {
 			driverConfig.Drives[volumeStart+i].PathOnHost = filepath.Base(resolved[i])
 		}
 	}
