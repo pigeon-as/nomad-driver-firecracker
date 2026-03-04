@@ -2,7 +2,6 @@ package machine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -53,15 +52,6 @@ func (c *Client) PutMmds(ctx context.Context, metadata interface{}) error {
 	}
 	_, err := c.client.PutMmds(ctx, metadata)
 	return err
-}
-
-// PutMmdsJSON parses a JSON string and pushes it to the MMDS data store.
-func (c *Client) PutMmdsJSON(ctx context.Context, rawJSON string) error {
-	var metadata interface{}
-	if err := json.Unmarshal([]byte(rawJSON), &metadata); err != nil {
-		return fmt.Errorf("invalid MMDS metadata JSON: %w", err)
-	}
-	return c.PutMmds(ctx, metadata)
 }
 
 // PauseVM pauses the microVM by setting its state to "Paused".

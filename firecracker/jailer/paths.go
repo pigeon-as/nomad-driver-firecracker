@@ -6,13 +6,6 @@ import (
 	"path/filepath"
 )
 
-// Paths holds jailer chroot paths used by the driver.
-type Paths struct {
-	// ChrootRoot is the root directory inside the jailer chroot
-	// (<chrootBase>/<exec>/<id>/root).
-	ChrootRoot string
-}
-
 // unixPathMax is the maximum usable length for a Unix domain socket path.
 // Linux's struct sockaddr_un.sun_path is 108 bytes; one is consumed by
 // the NUL terminator, leaving 107 usable characters.

@@ -116,7 +116,7 @@ func (c *TaskConfig) Validate() error {
 	for i, d := range c.Drives {
 		driveNames[i] = d.Name
 		if err := d.Validate(); err != nil {
-			return fmt.Errorf("drive[%d]: %v", i, err)
+			return fmt.Errorf("drive[%d]: %w", i, err)
 		}
 		if d.IsRootDevice {
 			if hasRootDevice {

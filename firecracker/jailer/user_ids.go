@@ -5,6 +5,7 @@ import (
 	"strconv"
 )
 
+// ResolveUserIDs resolves a username or numeric UID string to UID and GID pointers.
 func ResolveUserIDs(userStr string) (*int, *int, error) {
 	var u *user.User
 	var err error

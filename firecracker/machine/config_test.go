@@ -58,3 +58,65 @@ func TestBalloon_Validate(t *testing.T) {
 		must.NoError(t, b.Validate())
 	})
 }
+
+func TestVsock_Validate(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		var v *Vsock
+		must.NoError(t, v.Validate())
+	})
+	t.Run("valid CID 3", func(t *testing.T) {
+		v := &Vsock{GuestCID: 3}
+		must.NoError(t, v.Validate())
+	})
+	t.Run("valid max CID", func(t *testing.T) {
+		v := &Vsock{GuestCID: 0xFFFFFFFF}
+		must.NoError(t, v.Validate())
+	})
+	t.Run("CID too low", func(t *testing.T) {
+		v := &Vsock{GuestCID: 2}
+		must.Error(t, v.Validate())
+	})
+	t.Run("CID too high", func(t *testing.T) {
+		v := &Vsock{GuestCID: 0x100000000}
+		must.Error(t, v.Validate())
+	})
+}
+
+func TestMmds_Validate(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		var m *Mmds
+		must.NoError(t, m.Validate())
+	})
+	t.Run("empty", func(t *testing.T) {
+		m := &Mmds{}
+		must.NoError(t, m.Validate())
+	})
+	t.Run("valid V1", func(t *testing.T) {
+		m := &Mmds{Version: "V1"}
+		must.NoError(t, m.Validate())
+	})
+	t.Run("valid V2", func(t *testing.T) {
+		m := &Mmds{Version: "V2"}
+		must.NoError(t, m.Validate())
+	})
+	t.Run("invalid version", func(t *testing.T) {
+		m := &Mmds{Version: "V3"}
+		must.Error(t, m.Validate())
+	})
+	t.Run("valid metadata", func(t *testing.T) {
+		m := &Mmds{Metadata: `{"key":"value"}`}
+		must.NoError(t, m.Validate())
+	})
+	t.Run("invalid JSON", func(t *testing.T) {
+		m := &Mmds{Metadata: "not json"}
+		must.Error(t, m.Validate())
+	})
+	t.Run("reserved key IPConfigs", func(t *testing.T) {
+		m := &Mmds{Metadata: `{"IPConfigs":[]}`}
+		must.Error(t, m.Validate())
+	})
+	t.Run("reserved key Mounts", func(t *testing.T) {
+		m := &Mmds{Metadata: `{"Mounts":[]}`}
+		must.Error(t, m.Validate())
+	})
+}
