@@ -213,18 +213,18 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// When Nomad provides network isolation (bridge/group mode) and the user
 	// didn't manually configure network interfaces, create a TAP device with
 	// TC redirect inside the namespace for seamless bridge networking.
-	var guestNet *network.GuestNetworkConfig
+	var guestNets []network.GuestNetworkConfig
 	if cfg.NetworkIsolation != nil && cfg.NetworkIsolation.Path != "" && len(driverConfig.NetworkInterfaces) == 0 {
-		nifs, netCfg, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
+		nifs, nets, tapErr := network.AutoSetup(cfg.NetworkIsolation.Path)
 		if tapErr != nil {
 			_ = os.RemoveAll(jailerPath)
 			return nil, nil, fmt.Errorf("failed to setup bridge networking: %w", tapErr)
 		}
 		driverConfig.NetworkInterfaces = nifs
-		guestNet = netCfg
+		guestNets = nets
 		d.logger.Debug("created tap for bridge networking", "tap", nifs[0].StaticConfiguration.HostDevName, "netns", cfg.NetworkIsolation.Path)
-		if guestNet != nil {
-			d.logger.Debug("read guest network config from veth", "ip", guestNet.IP, "mask", guestNet.Mask, "gw", guestNet.Gateway)
+		for _, net := range guestNets {
+			d.logger.Debug("read guest network config from veth", "ip", net.IP, "mask", net.Mask, "gw", net.Gateway)
 		}
 	}
 
@@ -480,7 +480,7 @@ func (d *FirecrackerDriverPlugin) StartTask(cfg *drivers.TaskConfig) (*drivers.T
 	// already enabled by ToSDK whenever networking exists.
 	// MMDS data store is not persisted across snapshots, so this
 	// runs for both cold boot and snapshot restore.
-	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNet, guestMounts); mmdsContent != nil {
+	if mmdsContent := machine.BuildMmdsContent(driverConfig.Mmds.GetMetadata(), guestNets, guestMounts); mmdsContent != nil {
 		if mmdsErr := c.PutMmds(configCtx, mmdsContent); mmdsErr != nil {
 			err = fmt.Errorf("failed to set MMDS metadata: %w", mmdsErr)
 			return nil, nil, err

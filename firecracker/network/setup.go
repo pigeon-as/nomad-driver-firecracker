@@ -14,19 +14,21 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-// GuestNetworkConfig holds the IP configuration the guest needs to apply to
-// its eth0 interface. This is read from the veth inside the network namespace
-// during AutoSetup and passed to the driver so it can inject the values into
-// MMDS for pigeon-init to consume.
+// GuestNetworkConfig holds a single IP configuration the guest needs to apply
+// to its eth0 interface. In dual-stack CNI setups, AutoSetup returns multiple
+// configs (one per address family). This is read from the veth inside the
+// network namespace during AutoSetup and passed to the driver so it can inject
+// the values into MMDS for pigeon-init to consume.
 //
 // The field names and JSON tags match pigeon-init's config.IPConfig struct
 // so the driver can inject this directly into the MMDS RunConfig.
 type GuestNetworkConfig struct {
-	// IP is the IPv4 address without prefix, e.g. "172.26.64.2".
+	// IP is the address without prefix, e.g. "172.26.64.2" or "fdaa:a1b2::5".
 	IP string `json:"IP"`
-	// Mask is the prefix length, e.g. 20.
+	// Mask is the prefix length, e.g. 20 for IPv4 or 64 for IPv6.
 	Mask int `json:"Mask"`
 	// Gateway is the default gateway IP, e.g. "172.26.64.1".
+	// May be empty for IPv6 link-local routes.
 	Gateway string `json:"Gateway"`
 }
 
@@ -43,14 +45,16 @@ const (
 
 // AutoSetup creates a TAP device with TC redirect inside the given network
 // namespace and returns a single-element NetworkInterfaces configured to use
-// it, along with the guest network configuration read from the veth.
+// it, along with the guest network configurations read from the veth.
 //
-// This is the standard path for Nomad bridge networking: the TAP device
+// This is the standard path for Nomad bridge/CNI networking: the TAP device
 // bridges VM traffic through the veth created by Nomad. The returned
-// GuestNetworkConfig contains the IP/mask/gateway that the guest init
+// GuestNetworkConfigs contain the IP/mask/gateway entries that the guest init
 // process must apply to its eth0 to participate in the network.
-func AutoSetup(netnsPath string) (NetworkInterfaces, *GuestNetworkConfig, error) {
-	tapName, guestNet, err := SetupTapRedirect(netnsPath)
+//
+// When CNI IPAM assigns dual-stack addresses (IPv4 + IPv6), both are returned.
+func AutoSetup(netnsPath string) (NetworkInterfaces, []GuestNetworkConfig, error) {
+	tapName, guestNets, err := SetupTapRedirect(netnsPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,7 +64,7 @@ func AutoSetup(netnsPath string) (NetworkInterfaces, *GuestNetworkConfig, error)
 				HostDevName: tapName,
 			},
 		},
-	}, guestNet, nil
+	}, guestNets, nil
 }
 
 // SetupTapRedirect creates a TAP device inside the given network namespace and
@@ -77,7 +81,7 @@ func AutoSetup(netnsPath string) (NetworkInterfaces, *GuestNetworkConfig, error)
 //
 // The caller should pass the returned TAP name as host_dev_name in the
 // Firecracker VM configuration.
-func SetupTapRedirect(netnsPath string) (string, *GuestNetworkConfig, error) {
+func SetupTapRedirect(netnsPath string) (string, []GuestNetworkConfig, error) {
 	// Lock the goroutine to the OS thread so the namespace switch doesn't
 	// leak to other goroutines via the Go scheduler.
 	runtime.LockOSThread()
@@ -106,9 +110,10 @@ func SetupTapRedirect(netnsPath string) (string, *GuestNetworkConfig, error) {
 		return "", nil, err
 	}
 
-	// Read the veth IP configuration before creating the TAP. The guest
-	// needs this to configure its own eth0 interface.
-	guestNet, err := readVethConfig(veth)
+	// Read all IP configurations from the veth before creating the TAP.
+	// The guest needs these to configure its own eth0 interface.
+	// With dual-stack CNI IPAM, both IPv4 and IPv6 addresses are returned.
+	guestNets, err := readVethConfigs(veth)
 	if err != nil {
 		return "", nil, err
 	}
@@ -123,7 +128,7 @@ func SetupTapRedirect(netnsPath string) (string, *GuestNetworkConfig, error) {
 		return "", nil, err
 	}
 
-	return TapName, guestNet, nil
+	return TapName, guestNets, nil
 }
 
 // findVeth returns the veth link in the current network namespace.
@@ -253,62 +258,96 @@ func addRedirects(veth, tap netlink.Link) error {
 	return nil
 }
 
-// readVethConfig reads the IPv4 address, prefix length, and default gateway
-// from the veth link in the current network namespace. This must be called
-// while the goroutine is in the target namespace.
-func readVethConfig(veth netlink.Link) (*GuestNetworkConfig, error) {
-	addrs, err := netlink.AddrList(veth, netlink.FAMILY_V4)
+// readVethConfigs reads all IP addresses (IPv4 and IPv6) and their associated
+// gateways from the veth link in the current network namespace. This must be
+// called while the goroutine is in the target namespace.
+//
+// With dual-stack CNI IPAM (e.g. host-local with both IPv4 and IPv6 ranges),
+// this returns one GuestNetworkConfig per address. IPv6 link-local addresses
+// (fe80::/10) are excluded — only global/ULA addresses are returned.
+//
+// At least one address must exist or an error is returned.
+func readVethConfigs(veth netlink.Link) ([]GuestNetworkConfig, error) {
+	var configs []GuestNetworkConfig
+
+	// Read IPv4 addresses.
+	v4Addrs, err := netlink.AddrList(veth, netlink.FAMILY_V4)
 	if err != nil {
-		return nil, fmt.Errorf("list addresses on %s: %w", veth.Attrs().Name, err)
-	}
-	if len(addrs) == 0 {
-		return nil, fmt.Errorf("no IPv4 address on %s", veth.Attrs().Name)
+		return nil, fmt.Errorf("list IPv4 addresses on %s: %w", veth.Attrs().Name, err)
 	}
 
-	addr := addrs[0]
-	if addr.IPNet == nil {
-		return nil, fmt.Errorf("address on %s has no IPNet", veth.Attrs().Name)
-	}
-	ones, _ := addr.Mask.Size()
+	v4Gateway := findGateway(veth, netlink.FAMILY_V4)
 
-	// Find the default gateway from the routing table.
-	routes, err := netlink.RouteList(veth, netlink.FAMILY_V4)
+	for _, addr := range v4Addrs {
+		if addr.IPNet == nil {
+			continue
+		}
+		ones, _ := addr.Mask.Size()
+		configs = append(configs, GuestNetworkConfig{
+			IP:      addr.IP.String(),
+			Mask:    ones,
+			Gateway: v4Gateway,
+		})
+	}
+
+	// Read IPv6 addresses (skip link-local fe80::/10).
+	v6Addrs, err := netlink.AddrList(veth, netlink.FAMILY_V6)
 	if err != nil {
-		return nil, fmt.Errorf("list routes on %s: %w", veth.Attrs().Name, err)
+		return nil, fmt.Errorf("list IPv6 addresses on %s: %w", veth.Attrs().Name, err)
 	}
 
-	var gateway string
+	v6Gateway := findGateway(veth, netlink.FAMILY_V6)
+
+	for _, addr := range v6Addrs {
+		if addr.IPNet == nil {
+			continue
+		}
+		// Skip link-local addresses — the guest doesn't need them.
+		if addr.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		ones, _ := addr.Mask.Size()
+		configs = append(configs, GuestNetworkConfig{
+			IP:      addr.IP.String(),
+			Mask:    ones,
+			Gateway: v6Gateway,
+		})
+	}
+
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no usable IP addresses on %s", veth.Attrs().Name)
+	}
+
+	return configs, nil
+}
+
+// findGateway looks for a default gateway in the routing table for the given
+// address family. Returns empty string if none found.
+func findGateway(veth netlink.Link, family int) string {
+	routes, err := netlink.RouteList(veth, family)
+	if err != nil {
+		return ""
+	}
 	for _, r := range routes {
-		if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) {
+		if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) || r.Dst.IP.Equal(net.IPv6zero) {
 			if r.Gw != nil {
-				gateway = r.Gw.String()
-				break
+				return r.Gw.String()
 			}
 		}
 	}
 
-	// Also check routes not bound to a specific link (default route).
-	if gateway == "" {
-		allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
-		if err == nil {
-			for _, r := range allRoutes {
-				if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) {
-					if r.Gw != nil {
-						gateway = r.Gw.String()
-						break
-					}
-				}
+	// Also check routes not bound to a specific link.
+	allRoutes, err := netlink.RouteList(nil, family)
+	if err != nil {
+		return ""
+	}
+	for _, r := range allRoutes {
+		if r.Dst == nil || r.Dst.IP.Equal(net.IPv4zero) || r.Dst.IP.Equal(net.IPv6zero) {
+			if r.Gw != nil {
+				return r.Gw.String()
 			}
 		}
 	}
 
-	if gateway == "" {
-		return nil, fmt.Errorf("no default gateway found for %s", veth.Attrs().Name)
-	}
-
-	return &GuestNetworkConfig{
-		IP:      addr.IP.String(),
-		Mask:    ones,
-		Gateway: gateway,
-	}, nil
+	return ""
 }
