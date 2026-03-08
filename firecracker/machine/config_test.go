@@ -111,12 +111,12 @@ func TestMmds_Validate(t *testing.T) {
 		m := &Mmds{Metadata: "not json"}
 		must.Error(t, m.Validate())
 	})
-	t.Run("reserved key IPConfigs", func(t *testing.T) {
-		m := &Mmds{Metadata: `{"IPConfigs":[]}`}
-		must.Error(t, m.Validate())
+	t.Run("IPConfigs allowed in user metadata", func(t *testing.T) {
+		m := &Mmds{Metadata: `{"IPConfigs":[{"IP":"fdaa::1","Mask":128,"Gateway":"fdaa::gw"}]}`}
+		must.NoError(t, m.Validate())
 	})
-	t.Run("reserved key Mounts", func(t *testing.T) {
-		m := &Mmds{Metadata: `{"Mounts":[]}`}
-		must.Error(t, m.Validate())
+	t.Run("Mounts allowed in user metadata", func(t *testing.T) {
+		m := &Mmds{Metadata: `{"Mounts":[{"DevicePath":"/dev/vdc","MountPath":"/extra"}]}`}
+		must.NoError(t, m.Validate())
 	})
 }
