@@ -7,6 +7,7 @@ import (
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/jailer"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/machine"
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
+	"github.com/shoenig/test/must"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -51,8 +52,10 @@ func TestConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() err = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				must.Error(t, err)
+			} else {
+				must.NoError(t, err)
 			}
 		})
 	}
@@ -287,8 +290,10 @@ func TestTaskConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() err = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				must.Error(t, err)
+			} else {
+				must.NoError(t, err)
 			}
 		})
 	}

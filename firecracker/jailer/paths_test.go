@@ -4,32 +4,27 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/shoenig/test/must"
 )
 
 func TestBuildChrootDir(t *testing.T) {
 	tmp := t.TempDir()
 
 	chrootRoot, err := BuildChrootDir(tmp, "task-1", "firecracker")
-	if err != nil {
-		t.Fatalf("BuildChrootDir: %v", err)
-	}
+	must.NoError(t, err)
 
 	root := filepath.Join(tmp, "firecracker", "task-1", "root")
-	if _, err := os.Stat(root); err != nil {
-		t.Fatalf("root dir not created: %v", err)
-	}
-	if chrootRoot != root {
-		t.Errorf("ChrootRoot = %q, want %q", chrootRoot, root)
-	}
+	_, err = os.Stat(root)
+	must.NoError(t, err)
+	must.EqOp(t, root, chrootRoot)
 }
 
 func TestSocketPathRoundtrip(t *testing.T) {
 	jailerDir := "/srv/jailer/firecracker/task-1"
 	sock := SocketPath(jailerDir)
 	got := TaskDirFromSocketPath(sock)
-	if got != jailerDir {
-		t.Errorf("TaskDirFromSocketPath(SocketPath(%q)) = %q, want %q", jailerDir, got, jailerDir)
-	}
+	must.EqOp(t, jailerDir, got)
 }
 
 func TestFindTaskDir(t *testing.T) {
@@ -37,35 +32,21 @@ func TestFindTaskDir(t *testing.T) {
 
 	// No match
 	dir, err := FindTaskDir(tmp, "nonexistent")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dir != "" {
-		t.Errorf("expected empty, got %q", dir)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "", dir)
 
 	// Single match
 	taskDir := filepath.Join(tmp, "firecracker", "task-1")
-	if err := os.MkdirAll(taskDir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	must.NoError(t, os.MkdirAll(taskDir, 0700))
 	dir, err = FindTaskDir(tmp, "task-1")
-	if err != nil {
-		t.Fatalf("FindTaskDir: %v", err)
-	}
-	if dir != taskDir {
-		t.Errorf("FindTaskDir = %q, want %q", dir, taskDir)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, taskDir, dir)
 
 	// Multiple matches → error
 	dup := filepath.Join(tmp, "other-binary", "task-1")
-	if err := os.MkdirAll(dup, 0700); err != nil {
-		t.Fatal(err)
-	}
+	must.NoError(t, os.MkdirAll(dup, 0700))
 	_, err = FindTaskDir(tmp, "task-1")
-	if err == nil {
-		t.Fatal("expected error for multiple matches")
-	}
+	must.Error(t, err)
 }
 
 func TestFindAllTaskDirs(t *testing.T) {
@@ -74,29 +55,19 @@ func TestFindAllTaskDirs(t *testing.T) {
 	dir1 := filepath.Join(tmp, "firecracker", "task-1")
 	dir2 := filepath.Join(tmp, "other", "task-1")
 	for _, d := range []string{dir1, dir2} {
-		if err := os.MkdirAll(d, 0700); err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, os.MkdirAll(d, 0700))
 	}
 
 	dirs, err := FindAllTaskDirs(tmp, "task-1")
-	if err != nil {
-		t.Fatalf("FindAllTaskDirs: %v", err)
-	}
-	if len(dirs) != 2 {
-		t.Fatalf("expected 2 dirs, got %d", len(dirs))
-	}
+	must.NoError(t, err)
+	must.SliceLen(t, 2, dirs)
 }
 
 func TestValidateSocketPath(t *testing.T) {
 	// Short path should pass.
-	if err := ValidateSocketPath("/srv/jailer", "task-1", "firecracker"); err != nil {
-		t.Fatalf("expected valid: %v", err)
-	}
+	must.NoError(t, ValidateSocketPath("/srv/jailer", "task-1", "firecracker"))
 
 	// Path exceeding 107 bytes should fail.
 	longID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if err := ValidateSocketPath("/srv/jailer", longID, "firecracker"); err == nil {
-		t.Fatal("expected error for long socket path")
-	}
+	must.Error(t, ValidateSocketPath("/srv/jailer", longID, "firecracker"))
 }

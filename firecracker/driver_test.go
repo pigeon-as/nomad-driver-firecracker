@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/nomad/plugins/drivers"
+	"github.com/shoenig/test/must"
 )
 
 func TestJailerID(t *testing.T) {
@@ -25,12 +26,8 @@ func TestJailerID(t *testing.T) {
 			cfg := &drivers.TaskConfig{AllocID: tt.allocID, Name: tt.task}
 			id := jailerID(cfg)
 
-			if !jailerRegex.MatchString(id) {
-				t.Errorf("jailerID(%q, %q) = %q, does not match %s", tt.allocID, tt.task, id, jailerRegex)
-			}
-			if len(id) > 64 {
-				t.Errorf("jailerID(%q, %q) = %q, length %d exceeds 64", tt.allocID, tt.task, id, len(id))
-			}
+			must.True(t, jailerRegex.MatchString(id), must.Sprintf("jailerID(%q, %q) = %q, does not match %s", tt.allocID, tt.task, id, jailerRegex))
+			must.True(t, len(id) <= 64, must.Sprintf("jailerID(%q, %q) = %q, length %d exceeds 64", tt.allocID, tt.task, id, len(id)))
 		})
 	}
 }
@@ -40,18 +37,14 @@ func TestJailerID_UniquePerTask(t *testing.T) {
 	id1 := jailerID(&drivers.TaskConfig{AllocID: allocID, Name: "web"})
 	id2 := jailerID(&drivers.TaskConfig{AllocID: allocID, Name: "sidecar"})
 
-	if id1 == id2 {
-		t.Errorf("different tasks in same alloc produced same ID: %q", id1)
-	}
+	must.NotEq(t, id1, id2)
 }
 
 func TestJailerID_UniquePerAlloc(t *testing.T) {
 	id1 := jailerID(&drivers.TaskConfig{AllocID: "aaaaaaaa-1111-1111-1111-111111111111", Name: "web"})
 	id2 := jailerID(&drivers.TaskConfig{AllocID: "bbbbbbbb-2222-2222-2222-222222222222", Name: "web"})
 
-	if id1 == id2 {
-		t.Errorf("same task in different allocs produced same ID: %q", id1)
-	}
+	must.NotEq(t, id1, id2)
 }
 
 func TestJailerID_Deterministic(t *testing.T) {
@@ -59,7 +52,5 @@ func TestJailerID_Deterministic(t *testing.T) {
 	id1 := jailerID(cfg)
 	id2 := jailerID(cfg)
 
-	if id1 != id2 {
-		t.Errorf("same input produced different IDs: %q vs %q", id1, id2)
-	}
+	must.EqOp(t, id1, id2)
 }

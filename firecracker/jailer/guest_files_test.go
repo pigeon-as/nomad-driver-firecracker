@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/shoenig/test/must"
 )
 
 func TestIsAllowedImagePath(t *testing.T) {
@@ -51,9 +53,7 @@ func TestIsAllowedImagePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isAllowedImagePath(tt.allowedPaths, tt.allocDir, tt.imagePath)
-			if got != tt.want {
-				t.Errorf("isAllowedImagePath = %v, want %v", got, tt.want)
-			}
+			must.EqOp(t, tt.want, got)
 		})
 	}
 }
@@ -62,36 +62,27 @@ func TestLinkGuestFiles(t *testing.T) {
 	tmp := t.TempDir()
 	chrootRoot := filepath.Join(tmp, "chroot")
 	srcDir := filepath.Join(tmp, "images")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	must.NoError(t, os.MkdirAll(srcDir, 0755))
 
 	kernelPath := filepath.Join(srcDir, "vmlinux")
 	drivePath := filepath.Join(srcDir, "rootfs.ext4")
 	for _, p := range []string{kernelPath, drivePath} {
-		if err := os.WriteFile(p, []byte("data"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, os.WriteFile(p, []byte("data"), 0644))
 	}
 
 	// First link
 	err := LinkGuestFiles(chrootRoot, kernelPath, "", []string{drivePath})
-	if err != nil {
-		t.Fatalf("LinkGuestFiles: %v", err)
-	}
+	must.NoError(t, err)
 
 	// Verify files exist in chroot
 	for _, name := range []string{"vmlinux", "rootfs.ext4"} {
-		if _, err := os.Stat(filepath.Join(chrootRoot, name)); err != nil {
-			t.Errorf("expected %s in chroot: %v", name, err)
-		}
+		_, err := os.Stat(filepath.Join(chrootRoot, name))
+		must.NoError(t, err, must.Sprintf("expected %s in chroot", name))
 	}
 
 	// Idempotent — second call should succeed with same files
 	err = LinkGuestFiles(chrootRoot, kernelPath, "", []string{drivePath})
-	if err != nil {
-		t.Fatalf("idempotent LinkGuestFiles: %v", err)
-	}
+	must.NoError(t, err)
 }
 
 func TestLinkGuestFiles_DuplicateBasename(t *testing.T) {
@@ -106,66 +97,46 @@ func TestLinkGuestFiles_DuplicateBasename(t *testing.T) {
 	err := LinkGuestFiles(filepath.Join(tmp, "chroot"),
 		filepath.Join(dir1, "image.bin"), "",
 		[]string{filepath.Join(dir2, "image.bin")})
-	if err == nil {
-		t.Fatal("expected error for duplicate basename from different sources")
-	}
+	must.Error(t, err)
 }
 
 func TestValidateAndResolvePath_Disallowed(t *testing.T) {
 	_, err := ValidateAndResolvePath("/etc/passwd", "kernel", "/alloc", nil)
-	if err == nil {
-		t.Fatal("expected error for disallowed path")
-	}
+	must.Error(t, err)
 }
 
 func TestValidateAndResolvePath_Empty(t *testing.T) {
 	path, err := ValidateAndResolvePath("", "kernel", "/alloc", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if path != "" {
-		t.Errorf("expected empty, got %q", path)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "", path)
 }
 
 func TestPrepareGuestFiles(t *testing.T) {
 	tmp := t.TempDir()
 	chrootRoot := filepath.Join(tmp, "chroot")
 	srcDir := filepath.Join(tmp, "images")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	must.NoError(t, os.MkdirAll(srcDir, 0755))
 
 	kernelPath := filepath.Join(srcDir, "vmlinux")
 	drivePath := filepath.Join(srcDir, "rootfs.ext4")
 	for _, p := range []string{kernelPath, drivePath} {
-		if err := os.WriteFile(p, []byte("data"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, os.WriteFile(p, []byte("data"), 0644))
 	}
 
 	resKernel, resInitrd, resDrives, err := PrepareGuestFiles(
 		chrootRoot, kernelPath, "", []string{drivePath},
 		tmp, []string{srcDir},
 	)
-	if err != nil {
-		t.Fatalf("PrepareGuestFiles: %v", err)
-	}
-	if resKernel != kernelPath {
-		t.Errorf("kernel: got %q, want %q", resKernel, kernelPath)
-	}
-	if resInitrd != "" {
-		t.Errorf("initrd: got %q, want empty", resInitrd)
-	}
-	if len(resDrives) != 1 || resDrives[0] != drivePath {
-		t.Errorf("drives: got %v, want [%s]", resDrives, drivePath)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, kernelPath, resKernel)
+	must.EqOp(t, "", resInitrd)
+	must.SliceLen(t, 1, resDrives)
+	must.EqOp(t, drivePath, resDrives[0])
 
 	// Verify files were linked into chroot.
 	for _, name := range []string{"vmlinux", "rootfs.ext4"} {
-		if _, err := os.Stat(filepath.Join(chrootRoot, name)); err != nil {
-			t.Errorf("expected %s in chroot: %v", name, err)
-		}
+		_, err := os.Stat(filepath.Join(chrootRoot, name))
+		must.NoError(t, err, must.Sprintf("expected %s in chroot", name))
 	}
 }
 
@@ -175,7 +146,5 @@ func TestPrepareGuestFiles_DisallowedPath(t *testing.T) {
 		filepath.Join(tmp, "chroot"), "/etc/passwd", "", nil,
 		tmp, nil,
 	)
-	if err == nil {
-		t.Fatal("expected error for disallowed kernel path")
-	}
+	must.Error(t, err)
 }

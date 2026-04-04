@@ -6,15 +6,14 @@ import (
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
+	"github.com/shoenig/test/must"
 
 	"github.com/pigeon-as/nomad-driver-firecracker/firecracker/network"
 )
 
 func TestToSDK_NilConfig(t *testing.T) {
 	_, err := ToSDK(nil, nil)
-	if err == nil {
-		t.Fatal("expected error for nil config")
-	}
+	must.Error(t, err)
 }
 
 func TestToSDK_MissingKernel(t *testing.T) {
@@ -23,9 +22,7 @@ func TestToSDK_MissingKernel(t *testing.T) {
 		Drives:     []Drive{{PathOnHost: "/rootfs.ext4", IsRootDevice: true}},
 	}
 	_, err := ToSDK(cfg, nil)
-	if err == nil {
-		t.Fatal("expected error for missing kernel_image_path")
-	}
+	must.Error(t, err)
 }
 
 func TestToSDK_CPUShareConversion(t *testing.T) {
@@ -53,15 +50,10 @@ func TestToSDK_CPUShareConversion(t *testing.T) {
 		}
 
 		vmCfg, err := ToSDK(cfg, res)
-		if err != nil {
-			t.Fatalf("ToSDK with shares=%d: %v", tt.shares, err)
-		}
-		if vmCfg.MachineConfig == nil || vmCfg.MachineConfig.VcpuCount == nil {
-			t.Fatalf("MachineConfig.VcpuCount is nil for shares=%d", tt.shares)
-		}
-		if got := *vmCfg.MachineConfig.VcpuCount; got != tt.wantVCPU {
-			t.Errorf("shares=%d: vcpu_count = %d, want %d", tt.shares, got, tt.wantVCPU)
-		}
+		must.NoError(t, err, must.Sprintf("ToSDK with shares=%d", tt.shares))
+		must.NotNil(t, vmCfg.MachineConfig, must.Sprintf("MachineConfig nil for shares=%d", tt.shares))
+		must.NotNil(t, vmCfg.MachineConfig.VcpuCount, must.Sprintf("VcpuCount nil for shares=%d", tt.shares))
+		must.EqOp(t, tt.wantVCPU, *vmCfg.MachineConfig.VcpuCount, must.Sprintf("shares=%d", tt.shares))
 	}
 }
 
@@ -78,15 +70,10 @@ func TestToSDK_MmdsConfig(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.SliceLen(t, 1, vmCfg.MmdsConfig.NetworkInterfaces)
+	must.EqOp(t, "eth0", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_MmdsConfigNil(t *testing.T) {
@@ -96,12 +83,8 @@ func TestToSDK_MmdsConfigNil(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig != nil {
-		t.Error("expected MmdsConfig to be nil when not configured")
-	}
+	must.NoError(t, err)
+	must.Nil(t, vmCfg.MmdsConfig)
 }
 
 func TestToSDK_MmdsWithoutNetworkNoRouting(t *testing.T) {
@@ -112,12 +95,8 @@ func TestToSDK_MmdsWithoutNetworkNoRouting(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig != nil {
-		t.Error("expected MmdsConfig to be nil when no network interfaces exist")
-	}
+	must.NoError(t, err)
+	must.Nil(t, vmCfg.MmdsConfig)
 }
 
 func TestToSDK_MmdsBlockWithoutMetadata(t *testing.T) {
@@ -131,15 +110,10 @@ func TestToSDK_MmdsBlockWithoutMetadata(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set even without metadata")
-	}
-	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V1" {
-		t.Errorf("MmdsConfig.Version = %v, want V1", vmCfg.MmdsConfig.Version)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.NotNil(t, vmCfg.MmdsConfig.Version)
+	must.EqOp(t, "V1", *vmCfg.MmdsConfig.Version)
 }
 
 func TestToSDK_MmdsInterfaceInvalid(t *testing.T) {
@@ -153,9 +127,7 @@ func TestToSDK_MmdsInterfaceInvalid(t *testing.T) {
 	}
 
 	_, err := ToSDK(cfg, nil)
-	if err == nil {
-		t.Fatal("expected error for mmds.interface referencing non-existent NIC")
-	}
+	must.Error(t, err)
 }
 
 func TestToSDK_MmdsInterfaceMatchesUnnamedNIC(t *testing.T) {
@@ -169,15 +141,9 @@ func TestToSDK_MmdsInterfaceMatchesUnnamedNIC(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.EqOp(t, "eth0", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_MmdsInterfaceMatchesSecondUnnamedNIC(t *testing.T) {
@@ -192,15 +158,9 @@ func TestToSDK_MmdsInterfaceMatchesSecondUnnamedNIC(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth1" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth1]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.EqOp(t, "eth1", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
@@ -214,18 +174,12 @@ func TestToSDK_MetadataAutoConfiguresMmds(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set when metadata is provided")
-	}
-	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V2" {
-		t.Errorf("MmdsConfig.Version = %v, want V2", vmCfg.MmdsConfig.Version)
-	}
-	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "eth0" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [eth0]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.NotNil(t, vmCfg.MmdsConfig.Version)
+	must.EqOp(t, "V2", *vmCfg.MmdsConfig.Version)
+	must.SliceLen(t, 1, vmCfg.MmdsConfig.NetworkInterfaces)
+	must.EqOp(t, "eth0", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_MmdsVersionV1(t *testing.T) {
@@ -239,15 +193,10 @@ func TestToSDK_MmdsVersionV1(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if vmCfg.MmdsConfig.Version == nil || *vmCfg.MmdsConfig.Version != "V1" {
-		t.Errorf("MmdsConfig.Version = %v, want V1", vmCfg.MmdsConfig.Version)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.NotNil(t, vmCfg.MmdsConfig.Version)
+	must.EqOp(t, "V1", *vmCfg.MmdsConfig.Version)
 }
 
 func TestToSDK_MmdsInterfaceOverride(t *testing.T) {
@@ -262,15 +211,10 @@ func TestToSDK_MmdsInterfaceOverride(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "mgmt" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [mgmt]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.SliceLen(t, 1, vmCfg.MmdsConfig.NetworkInterfaces)
+	must.EqOp(t, "mgmt", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_Balloon(t *testing.T) {
@@ -281,21 +225,11 @@ func TestToSDK_Balloon(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.Balloon == nil {
-		t.Fatal("expected Balloon to be set")
-	}
-	if *vmCfg.Balloon.AmountMib != 128 {
-		t.Errorf("Balloon.AmountMib = %d, want 128", *vmCfg.Balloon.AmountMib)
-	}
-	if *vmCfg.Balloon.DeflateOnOom != true {
-		t.Error("expected DeflateOnOom to be true")
-	}
-	if vmCfg.Balloon.StatsPollingIntervals != 3 {
-		t.Errorf("Balloon.StatsPollingIntervals = %d, want 3", vmCfg.Balloon.StatsPollingIntervals)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.Balloon)
+	must.EqOp(t, int64(128), *vmCfg.Balloon.AmountMib)
+	must.True(t, *vmCfg.Balloon.DeflateOnOom)
+	must.EqOp(t, int64(3), vmCfg.Balloon.StatsPollingIntervals)
 }
 
 func TestToSDK_NoBalloon(t *testing.T) {
@@ -305,12 +239,8 @@ func TestToSDK_NoBalloon(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.Balloon != nil {
-		t.Error("expected Balloon to be nil when not configured")
-	}
+	must.NoError(t, err)
+	must.Nil(t, vmCfg.Balloon)
 }
 
 func TestToSDK_DriveRateLimiter(t *testing.T) {
@@ -331,42 +261,24 @@ func TestToSDK_DriveRateLimiter(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if len(vmCfg.Drives) != 1 {
-		t.Fatalf("expected 1 drive, got %d", len(vmCfg.Drives))
-	}
-	if vmCfg.Drives[0].RateLimiter == nil {
-		t.Fatal("expected drive rate limiter to be set")
-	}
-	if *vmCfg.Drives[0].RateLimiter.Bandwidth.Size != 524288 {
-		t.Errorf("drive rate limiter bandwidth size = %d, want 524288", *vmCfg.Drives[0].RateLimiter.Bandwidth.Size)
-	}
+	must.NoError(t, err)
+	must.SliceLen(t, 1, vmCfg.Drives)
+	must.NotNil(t, vmCfg.Drives[0].RateLimiter)
+	must.EqOp(t, int64(524288), *vmCfg.Drives[0].RateLimiter.Bandwidth.Size)
 }
 
 func TestBootSource_ToSDK(t *testing.T) {
 	b := &BootSource{KernelImagePath: "/vmlinux", BootArgs: "console=ttyS0", InitrdPath: "/initrd"}
 	sdk := b.ToSDK()
-	if sdk == nil {
-		t.Fatal("expected non-nil SDK BootSource")
-	}
-	if *sdk.KernelImagePath != "/vmlinux" {
-		t.Errorf("KernelImagePath = %s, want /vmlinux", *sdk.KernelImagePath)
-	}
-	if sdk.BootArgs != "console=ttyS0" {
-		t.Errorf("BootArgs = %s, want console=ttyS0", sdk.BootArgs)
-	}
-	if sdk.InitrdPath != "/initrd" {
-		t.Errorf("InitrdPath = %s, want /initrd", sdk.InitrdPath)
-	}
+	must.NotNil(t, sdk)
+	must.EqOp(t, "/vmlinux", *sdk.KernelImagePath)
+	must.EqOp(t, "console=ttyS0", sdk.BootArgs)
+	must.EqOp(t, "/initrd", sdk.InitrdPath)
 }
 
 func TestBootSource_ToSDK_Nil(t *testing.T) {
 	var b *BootSource
-	if b.ToSDK() != nil {
-		t.Error("expected nil SDK BootSource for nil receiver")
-	}
+	must.Nil(t, b.ToSDK())
 }
 
 func TestDrive_ToSDK_RateLimiter(t *testing.T) {
@@ -384,26 +296,16 @@ func TestDrive_ToSDK_RateLimiter(t *testing.T) {
 	}
 
 	sdk := d.ToSDK("drive0")
-	if sdk.RateLimiter == nil {
-		t.Fatal("expected rate limiter to be set")
-	}
-	if sdk.RateLimiter.Bandwidth == nil {
-		t.Fatal("expected rate limiter bandwidth to be set")
-	}
-	if *sdk.RateLimiter.Bandwidth.RefillTime != 1000 {
-		t.Errorf("RefillTime = %d, want 1000", *sdk.RateLimiter.Bandwidth.RefillTime)
-	}
-	if *sdk.RateLimiter.Bandwidth.Size != 1048576 {
-		t.Errorf("Size = %d, want 1048576", *sdk.RateLimiter.Bandwidth.Size)
-	}
+	must.NotNil(t, sdk.RateLimiter)
+	must.NotNil(t, sdk.RateLimiter.Bandwidth)
+	must.EqOp(t, int64(1000), *sdk.RateLimiter.Bandwidth.RefillTime)
+	must.EqOp(t, int64(1048576), *sdk.RateLimiter.Bandwidth.Size)
 }
 
 func TestDrive_ToSDK_NoRateLimiter(t *testing.T) {
 	d := &Drive{PathOnHost: "/rootfs.ext4", IsRootDevice: true}
 	sdk := d.ToSDK("drive0")
-	if sdk.RateLimiter != nil {
-		t.Error("expected nil rate limiter")
-	}
+	must.Nil(t, sdk.RateLimiter)
 }
 
 func TestToSDK_NamedDrives(t *testing.T) {
@@ -416,18 +318,10 @@ func TestToSDK_NamedDrives(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if len(vmCfg.Drives) != 2 {
-		t.Fatalf("expected 2 drives, got %d", len(vmCfg.Drives))
-	}
-	if *vmCfg.Drives[0].DriveID != "root" {
-		t.Errorf("drive[0].DriveID = %q, want \"root\"", *vmCfg.Drives[0].DriveID)
-	}
-	if *vmCfg.Drives[1].DriveID != "data" {
-		t.Errorf("drive[1].DriveID = %q, want \"data\"", *vmCfg.Drives[1].DriveID)
-	}
+	must.NoError(t, err)
+	must.SliceLen(t, 2, vmCfg.Drives)
+	must.EqOp(t, "root", *vmCfg.Drives[0].DriveID)
+	must.EqOp(t, "data", *vmCfg.Drives[1].DriveID)
 }
 
 func TestToSDK_UnnamedDrives(t *testing.T) {
@@ -440,15 +334,9 @@ func TestToSDK_UnnamedDrives(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if *vmCfg.Drives[0].DriveID != "drive0" {
-		t.Errorf("drive[0].DriveID = %q, want \"drive0\"", *vmCfg.Drives[0].DriveID)
-	}
-	if *vmCfg.Drives[1].DriveID != "drive1" {
-		t.Errorf("drive[1].DriveID = %q, want \"drive1\"", *vmCfg.Drives[1].DriveID)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "drive0", *vmCfg.Drives[0].DriveID)
+	must.EqOp(t, "drive1", *vmCfg.Drives[1].DriveID)
 }
 
 func TestToSDK_NamedNICs(t *testing.T) {
@@ -462,18 +350,10 @@ func TestToSDK_NamedNICs(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if len(vmCfg.NetworkInterfaces) != 2 {
-		t.Fatalf("expected 2 NICs, got %d", len(vmCfg.NetworkInterfaces))
-	}
-	if *vmCfg.NetworkInterfaces[0].IfaceID != "primary" {
-		t.Errorf("nic[0].IfaceID = %q, want \"primary\"", *vmCfg.NetworkInterfaces[0].IfaceID)
-	}
-	if *vmCfg.NetworkInterfaces[1].IfaceID != "mgmt" {
-		t.Errorf("nic[1].IfaceID = %q, want \"mgmt\"", *vmCfg.NetworkInterfaces[1].IfaceID)
-	}
+	must.NoError(t, err)
+	must.SliceLen(t, 2, vmCfg.NetworkInterfaces)
+	must.EqOp(t, "primary", *vmCfg.NetworkInterfaces[0].IfaceID)
+	must.EqOp(t, "mgmt", *vmCfg.NetworkInterfaces[1].IfaceID)
 }
 
 func TestToSDK_MetadataUsesNamedNIC(t *testing.T) {
@@ -487,15 +367,10 @@ func TestToSDK_MetadataUsesNamedNIC(t *testing.T) {
 	}
 
 	vmCfg, err := ToSDK(cfg, nil)
-	if err != nil {
-		t.Fatalf("ToSDK: %v", err)
-	}
-	if vmCfg.MmdsConfig == nil {
-		t.Fatal("expected MmdsConfig to be set")
-	}
-	if len(vmCfg.MmdsConfig.NetworkInterfaces) != 1 || vmCfg.MmdsConfig.NetworkInterfaces[0] != "primary" {
-		t.Errorf("MmdsConfig.NetworkInterfaces = %v, want [primary]", vmCfg.MmdsConfig.NetworkInterfaces)
-	}
+	must.NoError(t, err)
+	must.NotNil(t, vmCfg.MmdsConfig)
+	must.SliceLen(t, 1, vmCfg.MmdsConfig.NetworkInterfaces)
+	must.EqOp(t, "primary", vmCfg.MmdsConfig.NetworkInterfaces[0])
 }
 
 func TestToSDK_UnnamedNICs(t *testing.T) {
