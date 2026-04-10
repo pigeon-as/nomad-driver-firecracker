@@ -30,8 +30,8 @@ kernel:
 
 rootfs:
 	mkdir -p $(TEST_DIR)
-	scripts/build-rootfs.sh alpine:3.20 $(TEST_DIR)/rootfs.ext4
-	scripts/build-rootfs.sh hashicorp/http-echo $(TEST_DIR)/http-echo.ext4
+	bash scripts/build-rootfs.sh alpine:3.20 $(TEST_DIR)/rootfs.ext4
+	bash scripts/build-rootfs.sh hashicorp/http-echo $(TEST_DIR)/http-echo.ext4
 
 plugin:
 	mkdir -p $(PLUGIN_DIR)

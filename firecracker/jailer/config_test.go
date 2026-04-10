@@ -2,6 +2,8 @@ package jailer
 
 import (
 	"testing"
+
+	"github.com/shoenig/test/must"
 )
 
 func TestBuildArgs(t *testing.T) {
@@ -22,13 +24,8 @@ func TestBuildArgs(t *testing.T) {
 	}
 
 	args, err := cfg.BuildArgs(params)
-	if err != nil {
-		t.Fatalf("BuildArgs: %v", err)
-	}
-
-	if len(args) == 0 {
-		t.Fatal("expected non-empty args")
-	}
+	must.NoError(t, err)
+	must.True(t, len(args) > 0, must.Sprint("expected non-empty args"))
 
 	// Verify critical args are present
 	argSet := make(map[string]bool)
@@ -37,26 +34,20 @@ func TestBuildArgs(t *testing.T) {
 	}
 
 	for _, required := range []string{"--id", "task-1", "--cgroup-version", "2", "--netns", "/var/run/netns/test"} {
-		if !argSet[required] {
-			t.Errorf("missing expected arg %q in %v", required, args)
-		}
+		must.True(t, argSet[required], must.Sprintf("missing expected arg %q in %v", required, args))
 	}
 }
 
 func TestBuildArgs_NilConfig(t *testing.T) {
 	var cfg *JailerConfig
 	_, err := cfg.BuildArgs(nil)
-	if err == nil {
-		t.Fatal("expected error for nil config")
-	}
+	must.Error(t, err)
 }
 
 func TestBuildArgs_MissingChrootBase(t *testing.T) {
 	cfg := &JailerConfig{ExecFile: "firecracker", JailerBinary: "jailer"}
 	_, err := cfg.BuildArgs(nil)
-	if err == nil {
-		t.Fatal("expected error for missing chroot_base")
-	}
+	must.Error(t, err)
 }
 
 func TestJailerConfig_Validate(t *testing.T) {
@@ -75,8 +66,10 @@ func TestJailerConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() err = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				must.Error(t, err)
+			} else {
+				must.NoError(t, err)
 			}
 		})
 	}
