@@ -335,6 +335,7 @@ func TestToSDK_UnnamedDrives(t *testing.T) {
 
 	vmCfg, err := ToSDK(cfg, nil)
 	must.NoError(t, err)
+	must.SliceLen(t, 2, vmCfg.Drives)
 	must.EqOp(t, "drive0", *vmCfg.Drives[0].DriveID)
 	must.EqOp(t, "drive1", *vmCfg.Drives[1].DriveID)
 }
